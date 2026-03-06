@@ -46,7 +46,7 @@ Add `use_iam_auth` and `region` to your connection in `config/database.php`:
     'username' => env('DB_USERNAME', 'forge'),
     'password' => env('DB_PASSWORD', ''),
     'use_iam_auth' => env('DB_USE_IAM_AUTH', false),
-    'region' => env('AWS_REGION', 'eu-central-1'),
+    'region' => env('AWS_DEFAULT_REGION', 'eu-central-1'),
     'charset' => 'utf8mb4',
     'collation' => 'utf8mb4_unicode_ci',
     'prefix' => '',
@@ -66,7 +66,7 @@ Add `use_iam_auth` and `region` to your connection in `config/database.php`:
     'username' => env('DB_USERNAME', 'forge'),
     'password' => env('DB_PASSWORD', ''),
     'use_iam_auth' => env('DB_USE_IAM_AUTH', false),
-    'region' => env('AWS_REGION', 'eu-central-1'),
+    'region' => env('AWS_DEFAULT_REGION', 'eu-central-1'),
     'charset' => 'utf8',
     'prefix' => '',
     'schema' => 'public',
@@ -82,7 +82,7 @@ When `use_iam_auth` is `false`, the connector behaves identically to Laravel's d
 ```env
 DB_USE_IAM_AUTH=true
 DB_PASSWORD=
-AWS_REGION=eu-central-1
+AWS_DEFAULT_REGION=eu-central-1
 ```
 
 **Local development:**
