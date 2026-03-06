@@ -13,7 +13,7 @@ class RdsIamPostgresConnector extends PostgresConnector
      * IAM auth is enabled. PostgreSQL handles SSL via DSN parameters
      * (built by the parent's getDsn method), not PDO options.
      */
-    public function connect(array $config)
+    public function connect(array $config): \PDO
     {
         if (! empty($config['use_iam_auth'])) {
             $config['sslmode'] ??= 'verify-full';

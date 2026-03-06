@@ -2,7 +2,9 @@
 
 namespace Hackthebox\RdsIamAuth\Connectors;
 
+use Exception;
 use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
+use PDO;
 
 trait InjectsIamToken
 {
@@ -13,8 +15,9 @@ trait InjectsIamToken
     /**
      * Create a new PDO connection, injecting an IAM auth token as the
      * password when 'use_iam_auth' is enabled on the connection config.
+     * @throws Exception
      */
-    public function createConnection($dsn, array $config, array $options)
+    public function createConnection($dsn, array $config, array $options): PDO
     {
         if (empty($config['use_iam_auth'])) {
             return parent::createConnection($dsn, $config, $options);

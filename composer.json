@@ -5,6 +5,7 @@
     "license": "MIT",
     "type": "library",
     "require": {
+        "ext-pdo": "*",
         "php": "^8.2",
         "aws/aws-sdk-php": "^3.249",
         "illuminate/database": "^11.0|^12.0",
