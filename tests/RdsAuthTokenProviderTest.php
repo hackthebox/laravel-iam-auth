@@ -16,11 +16,13 @@ class RdsAuthTokenProviderTest extends TestCase
         return [RdsIamAuthServiceProvider::class];
     }
 
-    private function mockProvider(): RdsAuthTokenProvider&Mockery\MockInterface
+    private function mockProvider(AuthTokenGenerator $generator = null): RdsAuthTokenProvider&Mockery\MockInterface
     {
-        $generator = Mockery::mock(AuthTokenGenerator::class);
-        $generator->shouldReceive('createToken')
-            ->andReturn('generated-iam-token');
+        if ($generator === null) {
+            $generator = Mockery::mock(AuthTokenGenerator::class);
+            $generator->shouldReceive('createToken')
+                ->andReturn('generated-iam-token');
+        }
 
         $provider = Mockery::mock(RdsAuthTokenProvider::class)
             ->makePartial()
@@ -45,7 +47,12 @@ class RdsAuthTokenProviderTest extends TestCase
     {
         config(['rds-iam-auth.cache_store' => 'file']);
 
-        $provider = $this->mockProvider();
+        $generator = Mockery::mock(AuthTokenGenerator::class);
+        $generator->shouldReceive('createToken')
+            ->once()
+            ->andReturn('generated-iam-token');
+
+        $provider = $this->mockProvider($generator);
 
         $token1 = $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
         $token2 = $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
@@ -100,6 +107,22 @@ class RdsAuthTokenProviderTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("cannot use the 'dynamo' cache store");
+
+        $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
+    }
+
+    public function test_wraps_token_generation_failure_with_context(): void
+    {
+        $generator = Mockery::mock(AuthTokenGenerator::class);
+        $generator->shouldReceive('createToken')
+            ->andThrow(new \Exception('STS credentials not found'));
+
+        $provider = $this->mockProvider($generator);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage(
+            'Failed to generate RDS IAM auth token for app_user@my-rds.cluster.us-east-1.rds.amazonaws.com:3306 in region us-east-1: STS credentials not found'
+        );
 
         $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
     }

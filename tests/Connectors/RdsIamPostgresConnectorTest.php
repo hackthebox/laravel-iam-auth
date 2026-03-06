@@ -70,8 +70,6 @@ class RdsIamPostgresConnectorTest extends TestCase
 
         $pdo = Mockery::mock(PDO::class);
 
-        // The connect() method should set sslmode before calling parent::connect()
-        // which builds the DSN. We verify by checking the DSN passed to createPdoConnection.
         $connector->shouldReceive('createPdoConnection')
             ->once()
             ->withArgs(function ($dsn) {
@@ -93,8 +91,10 @@ class RdsIamPostgresConnectorTest extends TestCase
         $connector->connect($config);
     }
 
-    public function test_does_not_override_existing_sslmode(): void
+    public function test_forces_sslmode_from_package_config(): void
     {
+        config(['rds-iam-auth.pgsql_sslmode' => 'verify-full']);
+
         $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
@@ -104,10 +104,11 @@ class RdsIamPostgresConnectorTest extends TestCase
 
         $pdo = Mockery::mock(PDO::class);
 
+        // Even though connection config has sslmode=prefer, the package forces verify-full
         $connector->shouldReceive('createPdoConnection')
             ->once()
             ->withArgs(function ($dsn) {
-                return str_contains($dsn, 'sslmode=require');
+                return str_contains($dsn, 'sslmode=verify-full');
             })
             ->andReturn($pdo);
 
@@ -120,7 +121,41 @@ class RdsIamPostgresConnectorTest extends TestCase
             'use_iam_auth' => true,
             'region' => 'us-east-1',
             'charset' => 'utf8',
-            'sslmode' => 'require',
+            'sslmode' => 'prefer', // should be overridden
+        ];
+
+        $connector->connect($config);
+    }
+
+    public function test_sslrootcert_appears_in_dsn(): void
+    {
+        config(['rds-iam-auth.ssl_ca_path' => '/path/to/ca-bundle.pem']);
+
+        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider->shouldReceive('getToken')->andReturn('token');
+
+        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $pdo = Mockery::mock(PDO::class);
+
+        $connector->shouldReceive('createPdoConnection')
+            ->once()
+            ->withArgs(function ($dsn) {
+                return str_contains($dsn, 'sslrootcert=/path/to/ca-bundle.pem');
+            })
+            ->andReturn($pdo);
+
+        $config = [
+            'host' => 'my-rds.cluster.us-east-1.rds.amazonaws.com',
+            'port' => 5432,
+            'database' => 'mydb',
+            'username' => 'app',
+            'password' => '',
+            'use_iam_auth' => true,
+            'region' => 'us-east-1',
+            'charset' => 'utf8',
         ];
 
         $connector->connect($config);

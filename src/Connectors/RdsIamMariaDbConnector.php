@@ -2,12 +2,22 @@
 
 namespace Hackthebox\RdsIamAuth\Connectors;
 
+use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
 use Illuminate\Database\Connectors\MariaDbConnector;
 use PDO;
 
 class RdsIamMariaDbConnector extends MariaDbConnector
 {
     use InjectsIamToken;
+
+    public function __construct(private readonly RdsAuthTokenProvider $tokenProvider)
+    {
+    }
+
+    protected function getTokenProvider(): RdsAuthTokenProvider
+    {
+        return $this->tokenProvider;
+    }
 
     protected function applyIamSslOptions(array $options): array
     {

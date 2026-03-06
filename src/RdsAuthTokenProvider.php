@@ -48,9 +48,17 @@ class RdsAuthTokenProvider
 
     private function generateToken(string $host, int $port, string $username, string $region): string
     {
-        $generator = $this->createTokenGenerator();
+        try {
+            $generator = $this->createTokenGenerator();
 
-        return $generator->createToken("{$host}:{$port}", $region, $username);
+            return $generator->createToken("{$host}:{$port}", $region, $username);
+        } catch (\Throwable $e) {
+            throw new RuntimeException(
+                "Failed to generate RDS IAM auth token for {$username}@{$host}:{$port} in region {$region}: {$e->getMessage()}",
+                0,
+                $e,
+            );
+        }
     }
 
     protected function createTokenGenerator(): AuthTokenGenerator

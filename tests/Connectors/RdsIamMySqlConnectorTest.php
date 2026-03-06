@@ -5,6 +5,7 @@ namespace Hackthebox\RdsIamAuth\Tests\Connectors;
 use Hackthebox\RdsIamAuth\Connectors\RdsIamMySqlConnector;
 use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
 use Hackthebox\RdsIamAuth\RdsIamAuthServiceProvider;
+use InvalidArgumentException;
 use Mockery;
 use Orchestra\Testbench\TestCase;
 use PDO;
@@ -168,6 +169,97 @@ class RdsIamMySqlConnectorTest extends TestCase
             'password' => '',
             'use_iam_auth' => true,
             // no 'region' key — should fall back to config
+        ];
+
+        $connector->createConnection('mysql:host=my-rds', $config, []);
+    }
+
+    public function test_throws_on_missing_host(): void
+    {
+        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+
+        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('non-empty "host"');
+
+        $connector->createConnection('mysql:host=', [
+            'host' => '',
+            'port' => 3306,
+            'username' => 'app',
+            'password' => '',
+            'use_iam_auth' => true,
+            'region' => 'us-east-1',
+        ], []);
+    }
+
+    public function test_throws_on_missing_username(): void
+    {
+        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+
+        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('non-empty "username"');
+
+        $connector->createConnection('mysql:host=rds', [
+            'host' => 'my-rds.cluster.us-east-1.rds.amazonaws.com',
+            'port' => 3306,
+            'username' => '',
+            'password' => '',
+            'use_iam_auth' => true,
+            'region' => 'us-east-1',
+        ], []);
+    }
+
+    public function test_throws_on_missing_region(): void
+    {
+        config(['rds-iam-auth.region' => null]);
+
+        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+
+        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('non-empty "region"');
+
+        $connector->createConnection('mysql:host=rds', [
+            'host' => 'my-rds.cluster.us-east-1.rds.amazonaws.com',
+            'port' => 3306,
+            'username' => 'app',
+            'password' => '',
+            'use_iam_auth' => true,
+        ], []);
+    }
+
+    public function test_uses_default_port_when_port_is_empty_string(): void
+    {
+        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider->shouldReceive('getToken')
+            ->once()
+            ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app', 'us-east-1')
+            ->andReturn('iam-token-value');
+
+        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $pdo = Mockery::mock(PDO::class);
+        $connector->shouldReceive('createPdoConnection')->andReturn($pdo);
+
+        $config = [
+            'host' => 'my-rds.cluster.us-east-1.rds.amazonaws.com',
+            'port' => '',
+            'username' => 'app',
+            'password' => '',
+            'use_iam_auth' => true,
+            'region' => 'us-east-1',
         ];
 
         $connector->createConnection('mysql:host=my-rds', $config, []);
