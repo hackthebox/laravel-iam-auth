@@ -17,14 +17,34 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Token Cache Store
+    |--------------------------------------------------------------------------
+    |
+    | The Laravel cache store to use for caching IAM auth tokens when APCu
+    | is not available. Set to null to disable Laravel cache fallback.
+    |
+    | APCu always takes priority when available (best for PHP-FPM).
+    |
+    | WARNING: Do not use 'database' or 'dynamodb' — this would create a
+    | circular dependency (need DB to cache the token needed to open DB).
+    | The package will throw an exception if you do.
+    |
+    | Recommended: 'file', 'redis', 'memcached', or null.
+    |
+    */
+
+    'cache_store' => env('RDS_IAM_CACHE_STORE'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Token Cache TTL
     |--------------------------------------------------------------------------
     |
-    | How long (in seconds) to cache the IAM auth token in APCu. RDS IAM
-    | tokens are valid for 15 minutes. The default of 600 seconds (10 min)
-    | leaves a 5-minute buffer before expiry.
+    | How long (in seconds) to cache the IAM auth token. RDS IAM tokens are
+    | valid for 15 minutes. The default of 600 seconds (10 min) leaves a
+    | 5-minute buffer before expiry.
     |
-    | Requires the APCu extension to be installed and enabled.
+    | Applies to both APCu and Laravel cache store.
     |
     */
 

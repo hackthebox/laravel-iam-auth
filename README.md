@@ -4,7 +4,7 @@ RDS IAM authentication for Laravel MySQL, MariaDB, and PostgreSQL connections. D
 
 ## How It Works
 
-This package overrides Laravel's database connectors for MySQL, MariaDB, and PostgreSQL. When `use_iam_auth` is enabled on a connection, the connector generates a short-lived IAM auth token (via the AWS SDK) and uses it as the database password. Tokens are cached in APCu to avoid per-request STS calls.
+This package overrides Laravel's database connectors for MySQL, MariaDB, and PostgreSQL. When `use_iam_auth` is enabled on a connection, the connector generates a short-lived IAM auth token (via the AWS SDK) and uses it as the database password. Tokens are cached via APCu (preferred) or a configurable Laravel cache store to avoid per-request STS calls.
 
 The package does **not** introduce a new database driver. Laravel's `MySqlConnection`, `MariaDbConnection`, and `PostgresConnection` are used as-is.
 
@@ -100,7 +100,8 @@ The package config (`config/rds-iam-auth.php`) has three options:
 | Key | Default | Description |
 |---|---|---|
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
-| `cache_ttl` | `600` (10 min) | APCu cache TTL in seconds. Tokens are valid for 15 min. |
+| `cache_store` | `null` | Laravel cache store for token caching when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. |
+| `cache_ttl` | `600` (10 min) | Cache TTL in seconds (APCu and Laravel cache). Tokens are valid for 15 min. |
 | `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `RDS_IAM_SSL_CA_PATH` env. |
 
 ## RDS IAM Database User Setup
@@ -129,11 +130,15 @@ GRANT rds_iam TO app_user;
 
 The AWS SDK default credential chain picks up Pod Identity credentials automatically. No code changes needed beyond enabling `use_iam_auth`.
 
-## APCu
+## Token Caching
 
-In production (PHP-FPM), APCu caches the IAM token in shared memory. Only one request every ~10 minutes generates a new token — all others get a shared-memory lookup.
+IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-request STS calls:
 
-Without APCu (CLI, local dev), a fresh token is generated per connection. This is fine since `use_iam_auth` is typically `false` locally, and CLI commands (migrations, etc.) are short-lived.
+1. **APCu** (highest priority) — shared memory, zero I/O. Best for PHP-FPM. Install `ext-apcu` and it's used automatically.
+2. **Laravel cache store** — set `cache_store` to `file`, `redis`, `memcached`, etc. Good for queue workers or environments without APCu.
+3. **No caching** — fresh token per connection. Fine for local dev (`use_iam_auth` is typically `false`) and short-lived CLI commands.
+
+**Do not** set `cache_store` to `database` or `dynamodb` — this creates a circular dependency (need a DB connection to cache the token needed to open the DB connection). The package will throw a `RuntimeException` if you do.
 
 ## License
 
