@@ -38,5 +38,8 @@ jobs:
           composer require "illuminate/database:${LARAVEL_VERSION}" "illuminate/support:${LARAVEL_VERSION}" --no-update
           composer install --no-interaction --prefer-dist
 
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --no-progress
+
       - name: Run tests
         run: vendor/bin/phpunit
