@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-03-06
+
+### Fixed
+
+- Fix bundled SSL CA path resolution when config file is published to the application's `config/` directory (`__DIR__` resolved to the wrong location)
+
 ## [1.0.1] - 2026-03-06
 
 ### Fixed
@@ -32,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for PHP 8.2, 8.3, and 8.4
 - Support for Laravel 11 and 12
 
-[Unreleased]: https://github.com/hackthebox/laravel-rds-iam-auth/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/hackthebox/laravel-rds-iam-auth/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/hackthebox/laravel-rds-iam-auth/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/hackthebox/laravel-rds-iam-auth/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/hackthebox/laravel-rds-iam-auth/releases/tag/v1.0.0

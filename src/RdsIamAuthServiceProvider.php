@@ -9,6 +9,8 @@ use Illuminate\Support\ServiceProvider;
 
 class RdsIamAuthServiceProvider extends ServiceProvider
 {
+    private const BUNDLED_CA_PATH = __DIR__.'/../resources/certs/global-bundle.pem';
+
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/rds-iam-auth.php', 'rds-iam-auth');
@@ -20,6 +22,10 @@ class RdsIamAuthServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        if (empty(config('rds-iam-auth.ssl_ca_path'))) {
+            config(['rds-iam-auth.ssl_ca_path' => self::BUNDLED_CA_PATH]);
+        }
+
         $this->publishes([
             __DIR__.'/../config/rds-iam-auth.php' => config_path('rds-iam-auth.php'),
         ], 'rds-iam-auth-config');
