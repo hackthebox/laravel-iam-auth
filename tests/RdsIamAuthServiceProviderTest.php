@@ -43,6 +43,6 @@ class RdsIamAuthServiceProviderTest extends TestCase
     {
         $this->assertNotNull(config('rds-iam-auth.region'));
         $this->assertSame(600, config('rds-iam-auth.cache_ttl'));
-        $this->assertSame('/etc/ssl/certs/rds-combined-ca-bundle.pem', config('rds-iam-auth.ssl_ca_path'));
+        $this->assertStringEndsWith('resources/certs/global-bundle.pem', config('rds-iam-auth.ssl_ca_path'));
     }
 }

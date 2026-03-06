@@ -45,6 +45,6 @@ return [
     |
     */
 
-    'ssl_ca_path' => env('RDS_IAM_SSL_CA_PATH', '/etc/ssl/certs/rds-combined-ca-bundle.pem'),
+    'ssl_ca_path' => env('RDS_IAM_SSL_CA_PATH', __DIR__.'/../resources/certs/global-bundle.pem'),
 
 ];

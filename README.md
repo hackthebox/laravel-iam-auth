@@ -15,7 +15,7 @@ The package does **not** introduce a new database driver. Laravel's `MySqlConnec
 - AWS SDK for PHP >= 3.249 (Pod Identity support)
 - APCu extension (recommended for production — caches tokens across FPM requests)
 - RDS instance with IAM authentication enabled
-- SSL CA bundle ([download](https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem))
+- SSL CA bundle (bundled — override via `RDS_IAM_SSL_CA_PATH` env if needed)
 
 ## Installation
 
@@ -101,7 +101,7 @@ The package config (`config/rds-iam-auth.php`) has three options:
 |---|---|---|
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
 | `cache_ttl` | `600` (10 min) | APCu cache TTL in seconds. Tokens are valid for 15 min. |
-| `ssl_ca_path` | `/etc/ssl/certs/rds-combined-ca-bundle.pem` | Path to the RDS CA bundle |
+| `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `RDS_IAM_SSL_CA_PATH` env. |
 
 ## RDS IAM Database User Setup
 
