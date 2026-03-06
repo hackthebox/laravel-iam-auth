@@ -4,6 +4,7 @@ namespace Hackthebox\RdsIamAuth\Connectors;
 
 use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
 use Illuminate\Database\Connectors\PostgresConnector;
+use InvalidArgumentException;
 
 class RdsIamPostgresConnector extends PostgresConnector
 {
@@ -23,10 +24,21 @@ class RdsIamPostgresConnector extends PostgresConnector
      * IAM auth is enabled. PostgreSQL handles SSL via DSN parameters
      * (built by the parent's getDsn method), not PDO options.
      */
+    private const SECURE_SSL_MODES = ['verify-ca', 'verify-full'];
+
     public function connect(array $config): \PDO
     {
         if (! empty($config['use_iam_auth'])) {
-            $config['sslmode'] = config('rds-iam-auth.pgsql_sslmode', 'verify-full');
+            $sslmode = config('rds-iam-auth.pgsql_sslmode', 'verify-full');
+
+            if (! in_array($sslmode, self::SECURE_SSL_MODES, true)) {
+                throw new InvalidArgumentException(
+                    "RDS IAM auth requires PostgreSQL sslmode to be 'verify-ca' or 'verify-full', got '{$sslmode}'. "
+                    ."Check the 'pgsql_sslmode' value in config/rds-iam-auth.php or the RDS_IAM_PGSQL_SSLMODE env var."
+                );
+            }
+
+            $config['sslmode'] = $sslmode;
             $config['sslrootcert'] ??= config('rds-iam-auth.ssl_ca_path');
         }
 

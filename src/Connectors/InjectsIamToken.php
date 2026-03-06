@@ -64,6 +64,15 @@ trait InjectsIamToken
                 'RDS IAM auth requires a non-empty "region" in the database connection config or rds-iam-auth.region config.'
             );
         }
+
+        if (isset($config['port']) && $config['port'] !== '') {
+            $port = (int) $config['port'];
+            if ($port < 1 || $port > 65535) {
+                throw new InvalidArgumentException(
+                    "RDS IAM auth requires a valid port (1-65535), got '{$config['port']}'."
+                );
+            }
+        }
     }
 
     /**

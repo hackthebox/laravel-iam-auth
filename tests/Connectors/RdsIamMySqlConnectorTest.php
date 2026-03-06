@@ -238,6 +238,57 @@ class RdsIamMySqlConnectorTest extends TestCase
         ], []);
     }
 
+    public function test_enables_ssl_server_cert_verification(): void
+    {
+        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider->shouldReceive('getToken')->andReturn('token');
+
+        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $pdo = Mockery::mock(PDO::class);
+
+        $connector->shouldReceive('createPdoConnection')
+            ->once()
+            ->withArgs(function ($dsn, $username, $password, $options) {
+                return $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] === true;
+            })
+            ->andReturn($pdo);
+
+        $config = [
+            'host' => 'my-rds.cluster.us-east-1.rds.amazonaws.com',
+            'port' => 3306,
+            'username' => 'app',
+            'password' => '',
+            'use_iam_auth' => true,
+            'region' => 'us-east-1',
+        ];
+
+        $connector->createConnection('mysql:host=my-rds', $config, []);
+    }
+
+    public function test_throws_on_invalid_port(): void
+    {
+        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+
+        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('valid port (1-65535)');
+
+        $connector->createConnection('mysql:host=rds', [
+            'host' => 'my-rds.cluster.us-east-1.rds.amazonaws.com',
+            'port' => 0,
+            'username' => 'app',
+            'password' => '',
+            'use_iam_auth' => true,
+            'region' => 'us-east-1',
+        ], []);
+    }
+
     public function test_uses_default_port_when_port_is_empty_string(): void
     {
         $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);

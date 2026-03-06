@@ -25,6 +25,8 @@ class RdsIamMariaDbConnector extends MariaDbConnector
             $options[PDO::MYSQL_ATTR_SSL_CA] = config('rds-iam-auth.ssl_ca_path');
         }
 
+        $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] ??= true;
+
         return $options;
     }
 
