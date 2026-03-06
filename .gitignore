@@ -3,3 +3,4 @@
 /.phpunit.cache/
 .idea/
 .DS_Store
+mise.local.toml
