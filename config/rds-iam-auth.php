@@ -52,14 +52,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | PostgreSQL SSL Mode
+    |--------------------------------------------------------------------------
+    |
+    | The sslmode to use for PostgreSQL connections with IAM auth. This
+    | overrides any 'sslmode' set on the database connection config to
+    | prevent accidental downgrade of SSL verification.
+    |
+    | Recommended: 'verify-full' (verifies server certificate and hostname).
+    | Only change this if you understand the security implications.
+    |
+    */
+
+    'pgsql_sslmode' => env('RDS_IAM_PGSQL_SSLMODE', 'verify-full'),
+
+    /*
+    |--------------------------------------------------------------------------
     | SSL CA Certificate Path
     |--------------------------------------------------------------------------
     |
-    | Path to the AWS RDS combined CA bundle. Required for MySQL and MariaDB
-    | connections using IAM auth (the token must be sent over SSL).
-    |
-    | For PostgreSQL, configure 'sslmode' and 'sslrootcert' directly on the
-    | database connection in config/database.php.
+    | Path to the AWS RDS combined CA bundle. Used for SSL verification on
+    | all drivers when IAM auth is enabled (MySQL, MariaDB, PostgreSQL).
     |
     | Download from: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
     |

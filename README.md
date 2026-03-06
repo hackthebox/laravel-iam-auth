@@ -70,7 +70,6 @@ Add `use_iam_auth` and `region` to your connection in `config/database.php`:
     'charset' => 'utf8',
     'prefix' => '',
     'schema' => 'public',
-    'sslmode' => 'prefer',
 ],
 ```
 
@@ -95,13 +94,14 @@ DB_PASSWORD=secret
 
 ### Package Config
 
-The package config (`config/rds-iam-auth.php`) has three options:
+The package config (`config/rds-iam-auth.php`):
 
 | Key | Default | Description |
 |---|---|---|
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
 | `cache_store` | `null` | Laravel cache store for token caching when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. |
 | `cache_ttl` | `600` (10 min) | Cache TTL in seconds (APCu and Laravel cache). Tokens are valid for 15 min. |
+| `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Overrides connection-level `sslmode` to prevent accidental downgrade. Override with `RDS_IAM_PGSQL_SSLMODE` env. |
 | `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `RDS_IAM_SSL_CA_PATH` env. |
 
 ## RDS IAM Database User Setup
@@ -139,6 +139,12 @@ IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-r
 3. **No caching** — fresh token per connection. Fine for local dev (`use_iam_auth` is typically `false`) and short-lived CLI commands.
 
 **Do not** set `cache_store` to `database` or `dynamodb` — this creates a circular dependency (need a DB connection to cache the token needed to open the DB connection). The package will throw a `RuntimeException` if you do.
+
+**CLI and queue workers:** APCu is disabled in CLI by default (`apcu_enabled()` returns `false`). If you run queue workers with IAM auth, either set `apc.enable_cli=1` in your PHP CLI config, or configure a `cache_store` (e.g. `file` or `redis`).
+
+**Cache security note:** When using `file`, `redis`, or `memcached` as the cache store, the IAM token is stored in plaintext. The token is short-lived (15 min) and scoped to a specific DB user, but ensure your cache backend is appropriately secured. APCu stores tokens in shared memory within the PHP process, which is not accessible externally.
+
+**Bundled CA certificate:** The package includes the AWS RDS global CA bundle. This certificate bundle may become stale over time. If you encounter SSL verification errors, download the latest bundle from AWS and set `RDS_IAM_SSL_CA_PATH` to point to it.
 
 ## License
 
