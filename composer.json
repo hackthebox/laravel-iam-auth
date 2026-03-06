@@ -1,0 +1,42 @@
+{
+    "name": "hackthebox/laravel-rds-iam-auth",
+    "description": "RDS IAM authentication for Laravel MySQL, MariaDB, and PostgreSQL connections",
+    "keywords": ["laravel", "aws", "rds", "iam", "authentication", "eks", "pod-identity"],
+    "license": "MIT",
+    "type": "library",
+    "require": {
+        "php": "^8.2",
+        "aws/aws-sdk-php": "^3.249",
+        "illuminate/database": "^11.0|^12.0",
+        "illuminate/support": "^11.0|^12.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0|^10.0",
+        "phpunit/phpunit": "^11.0"
+    },
+    "suggest": {
+        "ext-apcu": "Recommended for caching IAM auth tokens between PHP-FPM requests in production"
+    },
+    "autoload": {
+        "psr-4": {
+            "Hackthebox\\RdsIamAuth\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Hackthebox\\RdsIamAuth\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Hackthebox\\RdsIamAuth\\RdsIamAuthServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
