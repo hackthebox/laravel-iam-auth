@@ -99,10 +99,31 @@ The package config (`config/rds-iam-auth.php`):
 | Key | Default | Description |
 |---|---|---|
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
+| `credential_provider` | `default` | AWS credential provider to use for token signing. Override with `RDS_IAM_CREDENTIAL_PROVIDER` env. See [Credential Provider](#credential-provider) below. |
 | `cache_store` | `null` | Laravel cache store for token caching when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. |
 | `cache_ttl` | `600` (10 min) | Cache TTL in seconds (APCu and Laravel cache). Tokens are valid for 15 min. |
 | `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Overrides connection-level `sslmode` to prevent accidental downgrade. Override with `RDS_IAM_PGSQL_SSLMODE` env. |
 | `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `RDS_IAM_SSL_CA_PATH` env. |
+
+### Credential Provider
+
+By default, the package uses the AWS SDK's default credential chain, which tries multiple sources in order (env vars, IRSA, Pod Identity, instance profile, etc.). If your pod has multiple credential sources and you need to force a specific one, set `credential_provider`:
+
+```env
+RDS_IAM_CREDENTIAL_PROVIDER=ecs
+```
+
+| Value | Source | Use case |
+|---|---|---|
+| `default` | Full AWS SDK credential chain | Most environments (default) |
+| `environment` | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars only | When you only want static env var credentials |
+| `ecs` | ECS container credentials endpoint | EKS Pod Identity or ECS task roles |
+| `web_identity` | `AWS_WEB_IDENTITY_TOKEN_FILE` (STS AssumeRoleWithWebIdentity) | IRSA (IAM Roles for Service Accounts) |
+| `instance_profile` | EC2 instance metadata (IMDSv2) | EC2 instances with an attached IAM role |
+| `sso` | AWS SSO (`~/.aws/config` + SSO cache) | Local development with `aws sso login` |
+| `ini` | Shared credentials file (`~/.aws/credentials`) | Local development or CI with credential files |
+
+This is useful when a pod has both AWS key env vars (e.g. for S3 access) and Pod Identity (for RDS IAM auth) — set `credential_provider` to `ecs` to skip the env vars and use Pod Identity.
 
 ## RDS IAM Database User Setup
 
@@ -129,6 +150,8 @@ GRANT rds_iam TO app_user;
 5. Restart your pods
 
 The AWS SDK default credential chain picks up Pod Identity credentials automatically. No code changes needed beyond enabling `use_iam_auth`.
+
+If your pod also has `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` env vars (e.g. for other AWS services), set `RDS_IAM_CREDENTIAL_PROVIDER=ecs` to force Pod Identity for RDS auth.
 
 ## Token Caching
 

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Configurable AWS credential provider via `credential_provider` config / `RDS_IAM_CREDENTIAL_PROVIDER` env var — supports `default`, `environment`, `ecs` (Pod Identity / ECS task role), `web_identity` (IRSA), `instance_profile`, `sso`, and `ini`
+
 ## [1.0.2] - 2026-03-06
 
 ### Fixed
