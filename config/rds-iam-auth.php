@@ -20,25 +20,13 @@ return [
     | AWS Credential Provider
     |--------------------------------------------------------------------------
     |
-    | The credential provider to use when generating IAM auth tokens. This
-    | controls how the package obtains AWS credentials for signing tokens.
-    |
-    | By default, the AWS SDK credential chain is used, which tries env vars,
-    | IRSA, Pod Identity, instance profile, etc. in order. Set this to force
-    | a specific provider — useful when multiple credential sources exist in
-    | the pod and you need to pick one (e.g. Pod Identity over env vars).
+    | The AWS credential provider used to sign IAM auth tokens. The default
+    | uses the full SDK credential chain. Override to force a specific
+    | provider when multiple credential sources exist (e.g. Pod Identity
+    | over env vars).
     |
     | Supported: 'default', 'environment', 'ecs', 'web_identity',
     |            'instance_profile', 'sso', 'ini'
-    |
-    |   default          - Full AWS SDK credential chain (env, ini, IRSA,
-    |                      Pod Identity, instance profile, etc.)
-    |   environment      - Only AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
-    |   ecs              - ECS container credentials / EKS Pod Identity
-    |   web_identity     - IRSA (IAM Roles for Service Accounts)
-    |   instance_profile - EC2 instance metadata (IMDSv2)
-    |   sso              - AWS SSO (useful for local development)
-    |   ini              - Shared credentials file (~/.aws/credentials)
     |
     */
 

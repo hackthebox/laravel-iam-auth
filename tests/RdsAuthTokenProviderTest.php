@@ -2,7 +2,6 @@
 
 namespace Hackthebox\RdsIamAuth\Tests;
 
-use Aws\Credentials\CredentialProvider;
 use Aws\Rds\AuthTokenGenerator;
 use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
 use Hackthebox\RdsIamAuth\RdsIamAuthServiceProvider;
@@ -112,46 +111,7 @@ class RdsAuthTokenProviderTest extends TestCase
         $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
     }
 
-    public function test_uses_default_credential_provider_by_default(): void
-    {
-        config(['rds-iam-auth.credential_provider' => 'default']);
-
-        $provider = new class extends RdsAuthTokenProvider
-        {
-            public function exposeCredentialProvider(): callable
-            {
-                $reflection = new \ReflectionMethod($this, 'resolveCredentialProvider');
-
-                return $reflection->invoke($this);
-            }
-        };
-
-        $result = $provider->exposeCredentialProvider();
-        $this->assertIsCallable($result);
-    }
-
-    public function test_resolves_environment_credential_provider(): void
-    {
-        config(['rds-iam-auth.credential_provider' => 'environment']);
-
-        $provider = new class extends RdsAuthTokenProvider
-        {
-            public function exposeCredentialProvider(): callable
-            {
-                $reflection = new \ReflectionMethod($this, 'resolveCredentialProvider');
-
-                return $reflection->invoke($this);
-            }
-        };
-
-        $result = $provider->exposeCredentialProvider();
-        $this->assertIsCallable($result);
-    }
-
-    /**
-     * @dataProvider validCredentialProviderNames
-     */
-    public function test_resolves_all_supported_credential_providers(string $name): void
+    private function resolveCredentialProviderFor(string $name): callable
     {
         config(['rds-iam-auth.credential_provider' => $name]);
 
@@ -159,13 +119,19 @@ class RdsAuthTokenProviderTest extends TestCase
         {
             public function exposeCredentialProvider(): callable
             {
-                $reflection = new \ReflectionMethod($this, 'resolveCredentialProvider');
-
-                return $reflection->invoke($this);
+                return $this->resolveCredentialProvider();
             }
         };
 
-        $result = $provider->exposeCredentialProvider();
+        return $provider->exposeCredentialProvider();
+    }
+
+    /**
+     * @dataProvider validCredentialProviderNames
+     */
+    public function test_resolves_all_supported_credential_providers(string $name): void
+    {
+        $result = $this->resolveCredentialProviderFor($name);
         $this->assertIsCallable($result);
     }
 
@@ -184,25 +150,10 @@ class RdsAuthTokenProviderTest extends TestCase
 
     public function test_throws_on_unsupported_credential_provider(): void
     {
-        config(['rds-iam-auth.credential_provider' => 'banana']);
-
-        $provider = $this->mockProvider();
-
-        // Override the mock to call the real resolveCredentialProvider
-        $realProvider = new class extends RdsAuthTokenProvider
-        {
-            public function callResolve(): callable
-            {
-                $reflection = new \ReflectionMethod($this, 'resolveCredentialProvider');
-
-                return $reflection->invoke($this);
-            }
-        };
-
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("Unsupported RDS IAM credential provider 'banana'");
 
-        $realProvider->callResolve();
+        $this->resolveCredentialProviderFor('banana');
     }
 
     public function test_wraps_token_generation_failure_with_context(): void

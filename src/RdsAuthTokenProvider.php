@@ -66,11 +66,11 @@ class RdsAuthTokenProvider
         return new AuthTokenGenerator($this->resolveCredentialProvider());
     }
 
-    private function resolveCredentialProvider(): callable
+    protected function resolveCredentialProvider(): callable
     {
-        $provider = config('rds-iam-auth.credential_provider', 'default');
+        $name = config('rds-iam-auth.credential_provider', 'default');
 
-        return match ($provider) {
+        return match ($name) {
             'default' => CredentialProvider::defaultProvider(),
             'environment' => CredentialProvider::env(),
             'ecs' => CredentialProvider::ecsCredentials(),
@@ -79,7 +79,7 @@ class RdsAuthTokenProvider
             'sso' => CredentialProvider::sso(),
             'ini' => CredentialProvider::ini(),
             default => throw new RuntimeException(
-                "Unsupported RDS IAM credential provider '{$provider}'. "
+                "Unsupported RDS IAM credential provider '{$name}'. "
                 ."Supported values: default, environment, ecs, web_identity, instance_profile, sso, ini."
             ),
         };
