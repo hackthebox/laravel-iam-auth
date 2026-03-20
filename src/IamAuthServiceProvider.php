@@ -15,6 +15,8 @@ class IamAuthServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/iam-auth.php', 'iam-auth');
 
+        $this->app->singleton(AwsCredentialCache::class);
+
         $this->app->bind('db.connector.mysql', IamMySqlConnector::class);
         $this->app->bind('db.connector.mariadb', IamMariaDbConnector::class);
         $this->app->bind('db.connector.pgsql', IamPostgresConnector::class);

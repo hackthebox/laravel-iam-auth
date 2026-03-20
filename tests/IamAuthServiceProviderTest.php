@@ -39,6 +39,14 @@ class IamAuthServiceProviderTest extends TestCase
         );
     }
 
+    public function test_registers_aws_credential_cache(): void
+    {
+        $this->assertInstanceOf(
+            \Hackthebox\IamAuth\AwsCredentialCache::class,
+            $this->app->make(\Hackthebox\IamAuth\AwsCredentialCache::class)
+        );
+    }
+
     public function test_merges_config(): void
     {
         $this->assertNotNull(config('iam-auth.region'));
