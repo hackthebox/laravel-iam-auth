@@ -7,9 +7,8 @@ return [
     | AWS Region
     |--------------------------------------------------------------------------
     |
-    | The AWS region where your RDS instances are located. This is used as a
-    | fallback when the 'region' key is not set on a specific database
-    | connection. Per-connection 'region' takes precedence.
+    | The AWS region used as a fallback when the 'region' key is not set on a
+    | specific database connection. Per-connection 'region' takes precedence.
     |
     */
 
@@ -34,19 +33,35 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Token Cache Store
+    | AWS Credential Caching
     |--------------------------------------------------------------------------
     |
-    | The Laravel cache store to use for caching IAM auth tokens when APCu
-    | is not available. Set to null to disable Laravel cache fallback.
+    | When using IAM roles (IRSA, EKS Pod Identity, EC2 instance profiles),
+    | the SDK resolves credentials via network calls (STS, IMDS) on every
+    | PHP-FPM request. This caches resolved credentials across requests,
+    | benefiting all AWS SDK calls (S3, SQS, SES, etc.).
+    |
+    | APCu is always used when available (zero-config, recommended for
+    | PHP-FPM). This setting configures a Laravel cache store as fallback
+    | for environments without APCu. Set to null to disable the fallback.
+    |
+    | WARNING: Do not use 'database' or 'dynamodb' -- circular dependency.
+    |
+    */
+
+    'credential_cache' => env('IAM_AUTH_CREDENTIAL_CACHE'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | RDS Token Cache Store
+    |--------------------------------------------------------------------------
+    |
+    | The Laravel cache store for caching RDS IAM auth tokens when APCu is
+    | not available. Set to null to disable Laravel cache fallback.
     |
     | APCu always takes priority when available (best for PHP-FPM).
     |
-    | WARNING: Do not use 'database' or 'dynamodb' — this would create a
-    | circular dependency (need DB to cache the token needed to open DB).
-    | The package will throw an exception if you do.
-    |
-    | Recommended: 'file', 'redis', 'memcached', or null.
+    | WARNING: Do not use 'database' or 'dynamodb' -- circular dependency.
     |
     */
 
@@ -54,14 +69,12 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Token Cache TTL
+    | RDS Token Cache TTL
     |--------------------------------------------------------------------------
     |
-    | How long (in seconds) to cache the IAM auth token. RDS IAM tokens are
+    | How long (in seconds) to cache the RDS IAM auth token. Tokens are
     | valid for 15 minutes. The default of 600 seconds (10 min) leaves a
     | 5-minute buffer before expiry.
-    |
-    | Applies to both APCu and Laravel cache store.
     |
     */
 
@@ -72,12 +85,8 @@ return [
     | PostgreSQL SSL Mode
     |--------------------------------------------------------------------------
     |
-    | The sslmode to use for PostgreSQL connections with IAM auth. This
-    | overrides any 'sslmode' set on the database connection config to
-    | prevent accidental downgrade of SSL verification.
-    |
-    | Recommended: 'verify-full' (verifies server certificate and hostname).
-    | Only change this if you understand the security implications.
+    | The sslmode for PostgreSQL connections with IAM auth. Overrides any
+    | 'sslmode' on the database connection to prevent accidental downgrade.
     |
     */
 
@@ -88,10 +97,10 @@ return [
     | SSL CA Certificate Path
     |--------------------------------------------------------------------------
     |
-    | Path to the AWS RDS combined CA bundle. Used for SSL verification on
-    | all drivers when IAM auth is enabled (MySQL, MariaDB, PostgreSQL).
+    | Path to the AWS RDS combined CA bundle for SSL verification on all
+    | drivers when IAM auth is enabled (MySQL, MariaDB, PostgreSQL).
     |
-    | Download from: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+    | Download: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
     |
     */
 
