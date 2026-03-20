@@ -111,6 +111,51 @@ class RdsAuthTokenProviderTest extends TestCase
         $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
     }
 
+    private function resolveCredentialProviderFor(string $name): callable
+    {
+        config(['rds-iam-auth.credential_provider' => $name]);
+
+        $provider = new class extends RdsAuthTokenProvider
+        {
+            public function exposeCredentialProvider(): callable
+            {
+                return $this->resolveCredentialProvider();
+            }
+        };
+
+        return $provider->exposeCredentialProvider();
+    }
+
+    /**
+     * @dataProvider validCredentialProviderNames
+     */
+    public function test_resolves_all_supported_credential_providers(string $name): void
+    {
+        $result = $this->resolveCredentialProviderFor($name);
+        $this->assertIsCallable($result);
+    }
+
+    public static function validCredentialProviderNames(): array
+    {
+        return [
+            'default' => ['default'],
+            'environment' => ['environment'],
+            'ecs' => ['ecs'],
+            'web_identity' => ['web_identity'],
+            'instance_profile' => ['instance_profile'],
+            'sso' => ['sso'],
+            'ini' => ['ini'],
+        ];
+    }
+
+    public function test_throws_on_unsupported_credential_provider(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage("Unsupported RDS IAM credential provider 'banana'");
+
+        $this->resolveCredentialProviderFor('banana');
+    }
+
     public function test_wraps_token_generation_failure_with_context(): void
     {
         $generator = Mockery::mock(AuthTokenGenerator::class);

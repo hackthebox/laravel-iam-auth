@@ -63,6 +63,25 @@ class RdsAuthTokenProvider
 
     protected function createTokenGenerator(): AuthTokenGenerator
     {
-        return new AuthTokenGenerator(CredentialProvider::defaultProvider());
+        return new AuthTokenGenerator($this->resolveCredentialProvider());
+    }
+
+    protected function resolveCredentialProvider(): callable
+    {
+        $name = config('rds-iam-auth.credential_provider', 'default');
+
+        return match ($name) {
+            'default' => CredentialProvider::defaultProvider(),
+            'environment' => CredentialProvider::env(),
+            'ecs' => CredentialProvider::ecsCredentials(),
+            'web_identity' => CredentialProvider::assumeRoleWithWebIdentityCredentialProvider(),
+            'instance_profile' => CredentialProvider::instanceProfile(),
+            'sso' => CredentialProvider::sso(),
+            'ini' => CredentialProvider::ini(),
+            default => throw new RuntimeException(
+                "Unsupported RDS IAM credential provider '{$name}'. "
+                ."Supported values: default, environment, ecs, web_identity, instance_profile, sso, ini."
+            ),
+        };
     }
 }

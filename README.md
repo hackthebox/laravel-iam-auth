@@ -99,6 +99,7 @@ The package config (`config/rds-iam-auth.php`):
 | Key | Default | Description |
 |---|---|---|
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
+| `credential_provider` | `default` | AWS credential provider for token signing. Override with `RDS_IAM_CREDENTIAL_PROVIDER` env. Supported: `default`, `environment`, `ecs`, `web_identity`, `instance_profile`, `sso`, `ini`. |
 | `cache_store` | `null` | Laravel cache store for token caching when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. |
 | `cache_ttl` | `600` (10 min) | Cache TTL in seconds (APCu and Laravel cache). Tokens are valid for 15 min. |
 | `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Overrides connection-level `sslmode` to prevent accidental downgrade. Override with `RDS_IAM_PGSQL_SSLMODE` env. |
@@ -129,6 +130,8 @@ GRANT rds_iam TO app_user;
 5. Restart your pods
 
 The AWS SDK default credential chain picks up Pod Identity credentials automatically. No code changes needed beyond enabling `use_iam_auth`.
+
+*The option to force a specific credential provider exists via the `credential_provider` config option.*
 
 ## Token Caching
 
