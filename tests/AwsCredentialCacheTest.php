@@ -32,7 +32,7 @@ class AwsCredentialCacheTest extends TestCase
 
     public function test_caches_credentials_in_laravel_cache_store(): void
     {
-        config(['iam-auth.credential_cache' => 'file']);
+        config(['iam-auth.cache_store' => 'file']);
 
         $callCount = 0;
         $provider = function () use (&$callCount) {
@@ -52,7 +52,7 @@ class AwsCredentialCacheTest extends TestCase
 
     public function test_skips_caching_when_disabled(): void
     {
-        config(['iam-auth.credential_cache' => null]);
+        config(['iam-auth.cache_store' => null]);
 
         $callCount = 0;
         $provider = function () use (&$callCount) {
@@ -71,7 +71,7 @@ class AwsCredentialCacheTest extends TestCase
     public function test_throws_on_database_cache_store(): void
     {
         config([
-            'iam-auth.credential_cache' => 'db_cache',
+            'iam-auth.cache_store' => 'db_cache',
             'cache.stores.db_cache' => ['driver' => 'database', 'table' => 'cache'],
         ]);
 
@@ -85,7 +85,7 @@ class AwsCredentialCacheTest extends TestCase
 
     public function test_refreshes_expired_credentials(): void
     {
-        config(['iam-auth.credential_cache' => 'file']);
+        config(['iam-auth.cache_store' => 'file']);
         cache()->store('file')->flush();
 
         $callCount = 0;

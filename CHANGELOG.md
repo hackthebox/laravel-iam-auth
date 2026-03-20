@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - AWS credential caching for PHP-FPM environments (APCu-first strategy)
 - Cached SDK credentials benefit all AWS services (S3, SQS, SES, etc.)
-- New `credential_cache` config option
+- `cache_store` now also caches resolved AWS SDK credentials (separate cache keys and TTLs)
 - Configurable AWS credential provider via `credential_provider` config / `IAM_AUTH_CREDENTIAL_PROVIDER` env var
 
 ### Changed

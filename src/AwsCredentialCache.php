@@ -18,7 +18,7 @@ class AwsCredentialCache
      */
     public function resolve(callable $provider): CredentialsInterface
     {
-        $store = config('iam-auth.credential_cache');
+        $store = config('iam-auth.cache_store');
 
         if (! $store && ! $this->apcuAvailable()) {
             return $provider();
@@ -97,7 +97,7 @@ class AwsCredentialCache
                 "IAM auth cannot use the '{$store}' cache store (driver: {$driver}). "
                 .'This would create a circular dependency. '
                 .'Use a non-database cache store (e.g. file, redis, memcached) or set '
-                ."'credential_cache' to null in config/iam-auth.php."
+                ."'cache_store' to null in config/iam-auth.php."
             );
         }
     }

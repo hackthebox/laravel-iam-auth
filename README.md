@@ -105,8 +105,7 @@ The package config (`config/iam-auth.php`):
 |---|---|---|
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
 | `credential_provider` | `default` | AWS credential provider. Override with `IAM_AUTH_CREDENTIAL_PROVIDER` env. Supported: `default`, `environment`, `ecs`, `web_identity`, `instance_profile`, `sso`, `ini`. |
-| `credential_cache` | `null` | Laravel cache store for AWS credential caching when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. Override with `IAM_AUTH_CREDENTIAL_CACHE` env. |
-| `cache_store` | `null` | Laravel cache store for RDS token caching when APCu is unavailable. Override with `IAM_AUTH_CACHE_STORE` env. |
+| `cache_store` | `null` | Laravel cache store for caching RDS tokens and AWS credentials when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. Override with `IAM_AUTH_CACHE_STORE` env. |
 | `cache_ttl` | `600` (10 min) | RDS token cache TTL in seconds. Override with `IAM_AUTH_CACHE_TTL` env. |
 | `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Override with `IAM_AUTH_PGSQL_SSLMODE` env. |
 | `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `IAM_AUTH_SSL_CA_PATH` env. |
@@ -159,21 +158,9 @@ IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-r
 
 When using IAM roles (IRSA, Pod Identity, instance profiles), the AWS SDK resolves credentials via network calls to STS or IMDS on every PHP-FPM request. Under high traffic this adds latency and can hit rate limits.
 
-This package caches resolved AWS SDK credentials across requests, benefiting **all** AWS SDK calls made by your application (S3, SQS, SES, etc.) — not just RDS token generation.
+This package caches resolved AWS SDK credentials across requests, benefiting **all** AWS SDK calls made by your application (S3, SQS, SES, etc.), not just RDS token generation.
 
-**Caching strategy:**
-
-1. **APCu** (preferred) — shared memory, zero I/O, zero config. Install `ext-apcu` and credentials are cached automatically.
-2. **Laravel cache store** — configure `credential_cache` to `file`, `redis`, `memcached`, etc. for environments without APCu.
-3. **No caching** — credentials are resolved fresh on each request if neither option is configured.
-
-**Do not** set `credential_cache` to `database` or `dynamodb` — the same circular dependency applies as with `cache_store`. The package will throw a `RuntimeException` if you do.
-
-Configure via the `credential_cache` key in `config/iam-auth.php` or the `IAM_AUTH_CREDENTIAL_CACHE` env var:
-
-```env
-IAM_AUTH_CREDENTIAL_CACHE=redis
-```
+The same `cache_store` setting controls both RDS token caching and AWS credential caching (with separate cache keys and TTLs). APCu is always preferred when available.
 
 **Cache security note:** Cached credentials are stored in plaintext in the configured backend. Ensure your cache backend is appropriately secured. APCu stores credentials in shared memory within the PHP process, which is not accessible externally.
 

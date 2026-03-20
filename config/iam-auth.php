@@ -33,33 +33,15 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | AWS Credential Caching
+    | Cache Store
     |--------------------------------------------------------------------------
     |
-    | When using IAM roles (IRSA, EKS Pod Identity, EC2 instance profiles),
-    | the SDK resolves credentials via network calls (STS, IMDS) on every
-    | PHP-FPM request. This caches resolved credentials across requests,
-    | benefiting all AWS SDK calls (S3, SQS, SES, etc.).
-    |
-    | APCu is always used when available (zero-config, recommended for
-    | PHP-FPM). This setting configures a Laravel cache store as fallback
-    | for environments without APCu. Set to null to disable the fallback.
-    |
-    | WARNING: Do not use 'database' or 'dynamodb' -- circular dependency.
-    |
-    */
-
-    'credential_cache' => env('IAM_AUTH_CREDENTIAL_CACHE'),
-
-    /*
-    |--------------------------------------------------------------------------
-    | RDS Token Cache Store
-    |--------------------------------------------------------------------------
-    |
-    | The Laravel cache store for caching RDS IAM auth tokens when APCu is
-    | not available. Set to null to disable Laravel cache fallback.
+    | The Laravel cache store for caching RDS IAM auth tokens and resolved
+    | AWS SDK credentials when APCu is not available. A single store is used
+    | for both (with separate cache keys and TTLs).
     |
     | APCu always takes priority when available (best for PHP-FPM).
+    | Set to null to disable Laravel cache fallback.
     |
     | WARNING: Do not use 'database' or 'dynamodb' -- circular dependency.
     |
