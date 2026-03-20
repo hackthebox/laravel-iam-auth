@@ -1,28 +1,28 @@
 <?php
 
-namespace Hackthebox\RdsIamAuth\Tests\Connectors;
+namespace Hackthebox\IamAuth\Tests\Connectors;
 
-use Hackthebox\RdsIamAuth\Connectors\RdsIamMySqlConnector;
-use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
-use Hackthebox\RdsIamAuth\RdsIamAuthServiceProvider;
+use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
+use Hackthebox\IamAuth\IamAuthServiceProvider;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use InvalidArgumentException;
 use Mockery;
 use Orchestra\Testbench\TestCase;
 use PDO;
 
-class RdsIamMySqlConnectorTest extends TestCase
+class IamMySqlConnectorTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
-        return [RdsIamAuthServiceProvider::class];
+        return [IamAuthServiceProvider::class];
     }
 
     public function test_skips_iam_when_not_enabled(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldNotReceive('getToken');
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -51,13 +51,13 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_injects_iam_token_when_enabled(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')
             ->once()
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -87,13 +87,13 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_uses_default_port_when_not_specified(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')
             ->once()
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -113,10 +113,10 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_does_not_override_existing_ssl_ca(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -147,15 +147,15 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_uses_config_region_as_fallback(): void
     {
-        config(['rds-iam-auth.region' => 'eu-west-1']);
+        config(['iam-auth.region' => 'eu-west-1']);
 
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')
             ->once()
             ->with('my-rds.cluster.eu-west-1.rds.amazonaws.com', 3306, 'app', 'eu-west-1')
             ->andReturn('token');
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -176,9 +176,9 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_throws_on_missing_host(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -197,9 +197,9 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_throws_on_missing_username(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -218,11 +218,11 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_throws_on_missing_region(): void
     {
-        config(['rds-iam-auth.region' => null]);
+        config(['iam-auth.region' => null]);
 
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -240,10 +240,10 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_enables_ssl_server_cert_verification(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -270,9 +270,9 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_throws_on_invalid_port(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -291,13 +291,13 @@ class RdsIamMySqlConnectorTest extends TestCase
 
     public function test_uses_default_port_when_port_is_empty_string(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')
             ->once()
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(RdsIamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 

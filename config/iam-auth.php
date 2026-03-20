@@ -30,7 +30,7 @@ return [
     |
     */
 
-    'credential_provider' => env('RDS_IAM_CREDENTIAL_PROVIDER', 'default'),
+    'credential_provider' => env('IAM_AUTH_CREDENTIAL_PROVIDER', 'default'),
 
     /*
     |--------------------------------------------------------------------------
@@ -50,7 +50,7 @@ return [
     |
     */
 
-    'cache_store' => env('RDS_IAM_CACHE_STORE'),
+    'cache_store' => env('IAM_AUTH_CACHE_STORE'),
 
     /*
     |--------------------------------------------------------------------------
@@ -65,7 +65,7 @@ return [
     |
     */
 
-    'cache_ttl' => (int) env('RDS_IAM_CACHE_TTL', 600),
+    'cache_ttl' => (int) env('IAM_AUTH_CACHE_TTL', 600),
 
     /*
     |--------------------------------------------------------------------------
@@ -81,7 +81,7 @@ return [
     |
     */
 
-    'pgsql_sslmode' => env('RDS_IAM_PGSQL_SSLMODE', 'verify-full'),
+    'pgsql_sslmode' => env('IAM_AUTH_PGSQL_SSLMODE', 'verify-full'),
 
     /*
     |--------------------------------------------------------------------------
@@ -95,6 +95,6 @@ return [
     |
     */
 
-    'ssl_ca_path' => env('RDS_IAM_SSL_CA_PATH'),
+    'ssl_ca_path' => env('IAM_AUTH_SSL_CA_PATH'),
 
 ];

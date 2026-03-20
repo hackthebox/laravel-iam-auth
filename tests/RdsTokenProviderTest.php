@@ -1,22 +1,22 @@
 <?php
 
-namespace Hackthebox\RdsIamAuth\Tests;
+namespace Hackthebox\IamAuth\Tests;
 
 use Aws\Rds\AuthTokenGenerator;
-use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
-use Hackthebox\RdsIamAuth\RdsIamAuthServiceProvider;
+use Hackthebox\IamAuth\IamAuthServiceProvider;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use Mockery;
 use Orchestra\Testbench\TestCase;
 use RuntimeException;
 
-class RdsAuthTokenProviderTest extends TestCase
+class RdsTokenProviderTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
-        return [RdsIamAuthServiceProvider::class];
+        return [IamAuthServiceProvider::class];
     }
 
-    private function mockProvider(AuthTokenGenerator $generator = null): RdsAuthTokenProvider&Mockery\MockInterface
+    private function mockProvider(AuthTokenGenerator $generator = null): RdsTokenProvider&Mockery\MockInterface
     {
         if ($generator === null) {
             $generator = Mockery::mock(AuthTokenGenerator::class);
@@ -24,7 +24,7 @@ class RdsAuthTokenProviderTest extends TestCase
                 ->andReturn('generated-iam-token');
         }
 
-        $provider = Mockery::mock(RdsAuthTokenProvider::class)
+        $provider = Mockery::mock(RdsTokenProvider::class)
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -45,7 +45,7 @@ class RdsAuthTokenProviderTest extends TestCase
 
     public function test_caches_token_in_laravel_cache_store(): void
     {
-        config(['rds-iam-auth.cache_store' => 'file']);
+        config(['iam-auth.cache_store' => 'file']);
 
         $generator = Mockery::mock(AuthTokenGenerator::class);
         $generator->shouldReceive('createToken')
@@ -68,7 +68,7 @@ class RdsAuthTokenProviderTest extends TestCase
     public function test_skips_laravel_cache_when_store_is_null(): void
     {
         cache()->store('file')->flush();
-        config(['rds-iam-auth.cache_store' => null]);
+        config(['iam-auth.cache_store' => null]);
 
         $provider = $this->mockProvider();
 
@@ -84,7 +84,7 @@ class RdsAuthTokenProviderTest extends TestCase
     public function test_throws_on_database_cache_store(): void
     {
         config([
-            'rds-iam-auth.cache_store' => 'db_cache',
+            'iam-auth.cache_store' => 'db_cache',
             'cache.stores.db_cache' => ['driver' => 'database', 'table' => 'cache'],
         ]);
 
@@ -99,7 +99,7 @@ class RdsAuthTokenProviderTest extends TestCase
     public function test_throws_on_dynamodb_cache_store(): void
     {
         config([
-            'rds-iam-auth.cache_store' => 'dynamo',
+            'iam-auth.cache_store' => 'dynamo',
             'cache.stores.dynamo' => ['driver' => 'dynamodb', 'table' => 'cache'],
         ]);
 
@@ -113,9 +113,9 @@ class RdsAuthTokenProviderTest extends TestCase
 
     private function resolveCredentialProviderFor(string $name): callable
     {
-        config(['rds-iam-auth.credential_provider' => $name]);
+        config(['iam-auth.credential_provider' => $name]);
 
-        $provider = new class extends RdsAuthTokenProvider
+        $provider = new class extends RdsTokenProvider
         {
             public function exposeCredentialProvider(): callable
             {
@@ -151,7 +151,7 @@ class RdsAuthTokenProviderTest extends TestCase
     public function test_throws_on_unsupported_credential_provider(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage("Unsupported RDS IAM credential provider 'banana'");
+        $this->expectExceptionMessage("Unsupported IAM auth credential provider 'banana'");
 
         $this->resolveCredentialProviderFor('banana');
     }
