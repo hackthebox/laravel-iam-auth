@@ -7,9 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [2.0.0] - 2026-03-20
 
-- Configurable AWS credential provider via `credential_provider` config / `RDS_IAM_CREDENTIAL_PROVIDER` env var — supports `default`, `environment`, `ecs` (Pod Identity / ECS task role), `web_identity` (IRSA), `instance_profile`, `sso`, and `ini`
+### Added
+- AWS credential caching for PHP-FPM environments (APCu-first strategy)
+- Cached SDK credentials benefit all AWS services (S3, SQS, SES, etc.)
+- New `credential_cache` config option
+- Configurable AWS credential provider via `credential_provider` config / `IAM_AUTH_CREDENTIAL_PROVIDER` env var
+
+### Changed
+- Renamed package from `hackthebox/laravel-rds-iam-auth` to `hackthebox/laravel-iam-auth`
+- Namespace changed from `Hackthebox\RdsIamAuth` to `Hackthebox\IamAuth`
+- Config file renamed from `rds-iam-auth.php` to `iam-auth.php`
+- Environment variables renamed from `RDS_IAM_*` to `IAM_AUTH_*`
+- Class names updated (e.g. `RdsIamMySqlConnector` to `IamMySqlConnector`)
+
+### Migration from v1.x
+1. Update composer.json: `hackthebox/laravel-rds-iam-auth` to `hackthebox/laravel-iam-auth`
+2. Rename published config: `config/rds-iam-auth.php` to `config/iam-auth.php`
+3. Update env vars: `RDS_IAM_*` to `IAM_AUTH_*`
+4. If referencing classes directly, update namespace from `Hackthebox\RdsIamAuth` to `Hackthebox\IamAuth`
 
 ## [1.0.2] - 2026-03-06
 
@@ -42,7 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for PHP 8.2, 8.3, and 8.4
 - Support for Laravel 11 and 12
 
-[Unreleased]: https://github.com/hackthebox/laravel-rds-iam-auth/compare/v1.0.2...HEAD
-[1.0.2]: https://github.com/hackthebox/laravel-rds-iam-auth/compare/v1.0.1...v1.0.2
-[1.0.1]: https://github.com/hackthebox/laravel-rds-iam-auth/compare/v1.0.0...v1.0.1
-[1.0.0]: https://github.com/hackthebox/laravel-rds-iam-auth/releases/tag/v1.0.0
+[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.2...v2.0.0
+[1.0.2]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/hackthebox/laravel-iam-auth/releases/tag/v1.0.0
