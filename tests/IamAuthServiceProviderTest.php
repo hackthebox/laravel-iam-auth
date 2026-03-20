@@ -12,7 +12,10 @@ class IamAuthServiceProviderTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
-        return [IamAuthServiceProvider::class];
+        return [
+            \Aws\Laravel\AwsServiceProvider::class,
+            IamAuthServiceProvider::class,
+        ];
     }
 
     public function test_registers_mysql_connector(): void
@@ -52,5 +55,19 @@ class IamAuthServiceProviderTest extends TestCase
         $this->assertNotNull(config('iam-auth.region'));
         $this->assertSame(600, config('iam-auth.cache_ttl'));
         $this->assertStringEndsWith('resources/certs/global-bundle.pem', config('iam-auth.ssl_ca_path'));
+    }
+
+    public function test_registers_credential_provider_binding(): void
+    {
+        $provider = $this->app->make('iam-auth.credential-provider');
+
+        $this->assertIsCallable($provider);
+    }
+
+    public function test_extends_aws_sdk_singleton(): void
+    {
+        $sdk = $this->app->make('aws');
+
+        $this->assertInstanceOf(\Aws\Sdk::class, $sdk);
     }
 }
