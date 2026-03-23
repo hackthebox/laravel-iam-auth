@@ -3,11 +3,10 @@
 namespace Hackthebox\IamAuth;
 
 use Aws\Credentials\CredentialsInterface;
-use RuntimeException;
 
 class AwsCredentialCache
 {
-    private const UNSAFE_CACHE_DRIVERS = ['database', 'dynamodb'];
+    use ValidatesCacheStore;
 
     private const CACHE_KEY = 'aws_credentials';
 
@@ -88,17 +87,4 @@ class AwsCredentialCache
         return max(0, $expiration - time() - 60);
     }
 
-    private function assertSafeCacheStore(string $store): void
-    {
-        $driver = config("cache.stores.{$store}.driver");
-
-        if (in_array($driver, self::UNSAFE_CACHE_DRIVERS, true)) {
-            throw new RuntimeException(
-                "IAM auth cannot use the '{$store}' cache store (driver: {$driver}). "
-                .'This would create a circular dependency. '
-                .'Use a non-database cache store (e.g. file, redis, memcached) or set '
-                ."'cache_store' to null in config/iam-auth.php."
-            );
-        }
-    }
 }

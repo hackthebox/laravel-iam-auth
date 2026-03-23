@@ -7,9 +7,9 @@ use RuntimeException;
 
 class RdsTokenProvider
 {
-    private const UNSAFE_CACHE_DRIVERS = ['database', 'dynamodb'];
+    use ValidatesCacheStore;
 
-    public function __construct(private readonly mixed $credentialProvider)
+    public function __construct(private readonly \Closure $credentialProvider)
     {
     }
 
@@ -32,20 +32,6 @@ class RdsTokenProvider
         }
 
         return $generator();
-    }
-
-    private function assertSafeCacheStore(string $store): void
-    {
-        $driver = config("cache.stores.{$store}.driver");
-
-        if (in_array($driver, self::UNSAFE_CACHE_DRIVERS, true)) {
-            throw new RuntimeException(
-                "IAM auth cannot use the '{$store}' cache store (driver: {$driver}). "
-                .'This would create a circular dependency. '
-                .'Use a non-database cache store (e.g. file, redis, memcached) or set '
-                ."'cache_store' to null in config/iam-auth.php."
-            );
-        }
     }
 
     private function generateToken(string $host, int $port, string $username, string $region): string
