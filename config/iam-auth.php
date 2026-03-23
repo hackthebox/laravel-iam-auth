@@ -19,10 +19,10 @@ return [
     | AWS Credential Provider
     |--------------------------------------------------------------------------
     |
-    | The AWS credential provider used to sign IAM auth tokens. The default
-    | uses the full SDK credential chain. Override to force a specific
-    | provider when multiple credential sources exist (e.g. Pod Identity
-    | over env vars).
+    | The AWS credential provider used for all SDK operations (S3, SQS, SES,
+    | RDS token generation, etc.). The default uses the full SDK credential
+    | chain. Override to force a specific provider when multiple credential
+    | sources exist (e.g. Pod Identity over env vars).
     |
     | Supported: 'default', 'environment', 'ecs', 'web_identity',
     |            'instance_profile', 'sso', 'ini'

@@ -70,4 +70,43 @@ class IamAuthServiceProviderTest extends TestCase
 
         $this->assertInstanceOf(\Aws\Sdk::class, $sdk);
     }
+
+    /**
+     * @dataProvider validCredentialProviderNames
+     */
+    public function test_builds_all_supported_credential_providers(string $name): void
+    {
+        config(['iam-auth.credential_provider' => $name]);
+
+        // Force re-resolution of the singleton
+        $this->app->forgetInstance('iam-auth.credential-provider');
+
+        $provider = $this->app->make('iam-auth.credential-provider');
+        $this->assertIsCallable($provider);
+    }
+
+    public static function validCredentialProviderNames(): array
+    {
+        return [
+            'default' => ['default'],
+            'environment' => ['environment'],
+            'ecs' => ['ecs'],
+            'web_identity' => ['web_identity'],
+            'instance_profile' => ['instance_profile'],
+            'sso' => ['sso'],
+            'ini' => ['ini'],
+        ];
+    }
+
+    public function test_throws_on_unsupported_credential_provider(): void
+    {
+        config(['iam-auth.credential_provider' => 'banana']);
+
+        $this->app->forgetInstance('iam-auth.credential-provider');
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("Unsupported IAM auth credential provider 'banana'");
+
+        $this->app->make('iam-auth.credential-provider');
+    }
 }
