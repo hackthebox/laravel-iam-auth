@@ -19,8 +19,7 @@ The package also extends the aws/aws-sdk-php-laravel SDK singleton to cache reso
 
 - PHP >= 8.2
 - Laravel 11 or 12
-- AWS SDK for PHP >= 3.249 (Pod Identity support)
-- aws/aws-sdk-php-laravel (installed automatically as dependency)
+- aws/aws-sdk-php-laravel >= 3.7 and aws/aws-sdk-php >= 3.249 (both installed automatically)
 - APCu extension (recommended for production — caches tokens and credentials across FPM requests)
 - RDS instance with IAM authentication enabled
 - SSL CA bundle (bundled — override via `IAM_AUTH_SSL_CA_PATH` env if needed)

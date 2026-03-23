@@ -5,6 +5,7 @@
     "license": "MIT",
     "type": "library",
     "require": {
+        "aws/aws-sdk-php": "^3.249",
         "aws/aws-sdk-php-laravel": "^3.7",
         "ext-pdo": "*",
         "php": "^8.2",

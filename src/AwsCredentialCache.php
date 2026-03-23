@@ -8,7 +8,7 @@ class AwsCredentialCache
 {
     use ValidatesCacheStore;
 
-    private const CACHE_KEY = 'aws_credentials';
+    private const CACHE_KEY = 'iam_auth:aws_credentials';
 
     /**
      * Resolve credentials, using APCu or Laravel cache when available.

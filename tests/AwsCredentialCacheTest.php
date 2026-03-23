@@ -33,6 +33,7 @@ class AwsCredentialCacheTest extends TestCase
     public function test_caches_credentials_in_laravel_cache_store(): void
     {
         config(['iam-auth.cache_store' => 'file']);
+        cache()->store('file')->flush();
 
         $callCount = 0;
         $provider = function () use (&$callCount) {
