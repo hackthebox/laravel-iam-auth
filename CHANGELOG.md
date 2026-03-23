@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Cached SDK credentials benefit all AWS services (S3, SQS, SES, etc.)
 - `cache_store` now also caches resolved AWS SDK credentials (separate cache keys and TTLs)
 - Configurable AWS credential provider via `credential_provider` config / `IAM_AUTH_CREDENTIAL_PROVIDER` env var
+- Integration with `aws/aws-sdk-php-laravel`: extends the SDK singleton with cached credentials
+- `credential_provider` config now applies to all AWS SDK operations, not just RDS
 
 ### Changed
 - Renamed package from `hackthebox/laravel-rds-iam-auth` to `hackthebox/laravel-iam-auth`
