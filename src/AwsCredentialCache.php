@@ -57,7 +57,8 @@ class AwsCredentialCache
 
     private function resolveViaLaravelCache(callable $provider, string $store): CredentialsInterface
     {
-        $cached = $this->resolveCacheStore($store)->get(self::CACHE_KEY);
+        $cache = $this->resolveCacheStore($store);
+        $cached = $cache->get(self::CACHE_KEY);
 
         if ($cached instanceof CredentialsInterface && ! $cached->isExpired()) {
             return $cached;
@@ -67,7 +68,7 @@ class AwsCredentialCache
 
         $ttl = $this->computeTtl($credentials);
         if ($ttl > 0) {
-            $this->resolveCacheStore($store)->put(self::CACHE_KEY, $credentials, $ttl);
+            $cache->put(self::CACHE_KEY, $credentials, $ttl);
         }
 
         return $credentials;

@@ -27,9 +27,13 @@ class IamAuthServiceProvider extends ServiceProvider
             $provider = $this->buildCredentialProvider();
 
             return function () use ($cache, $provider) {
-                return Create::promiseFor(
-                    $cache->resolve(fn () => $provider()->wait())
-                );
+                try {
+                    return Create::promiseFor(
+                        $cache->resolve(fn () => $provider()->wait())
+                    );
+                } catch (\Throwable $e) {
+                    return Create::rejectionFor($e);
+                }
             };
         });
 
