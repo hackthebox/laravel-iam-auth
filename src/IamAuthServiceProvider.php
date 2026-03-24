@@ -73,7 +73,7 @@ class IamAuthServiceProvider extends ServiceProvider
             'sso' => CredentialProvider::sso(),
             'ini' => CredentialProvider::ini(),
             default => throw new RuntimeException(
-                "Unsupported IAM auth credential provider '{$name}'. "
+                "Unsupported IAM auth credential provider '$name'. "
                 ."Supported values: default, environment, ecs, web_identity, instance_profile, sso, ini."
             ),
         };

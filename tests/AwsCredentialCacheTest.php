@@ -84,6 +84,30 @@ class AwsCredentialCacheTest extends TestCase
         $cache->resolve(fn () => new Credentials('a', 'b'));
     }
 
+    public function test_resolves_valid_cache_store(): void
+    {
+        config(['iam-auth.cache_store' => 'file']);
+        cache()->store('file')->flush();
+
+        $cache = $this->cacheWithoutApcu();
+
+        $creds = $cache->resolve(fn () => new Credentials('key', 'secret', 'token', time() + 3600));
+
+        $this->assertSame('key', $creds->getAccessKeyId());
+    }
+
+    public function test_throws_on_nonexistent_cache_store(): void
+    {
+        config(['iam-auth.cache_store' => 'nonexistent']);
+
+        $cache = $this->cacheWithoutApcu();
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage("IAM auth cache store 'nonexistent' is not configured");
+
+        $cache->resolve(fn () => new Credentials('a', 'b'));
+    }
+
     public function test_refreshes_expired_credentials(): void
     {
         config(['iam-auth.cache_store' => 'file']);
