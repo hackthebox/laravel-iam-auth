@@ -17,6 +17,6 @@ We will acknowledge your report within 5 business days and aim to provide a fix 
 
 Security fixes are applied to the latest minor release only.
 
-| Version | Supported |
-|---------|-----------|
-| 1.x     | Yes       |
+| Version    | Supported |
+|------------|-----------|
+| Latest 1.x | Yes       |
