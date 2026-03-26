@@ -2,6 +2,12 @@
     "name": "hackthebox/laravel-iam-auth",
     "description": "AWS IAM authentication for Laravel: RDS database connections and SDK credential caching for PHP-FPM",
     "keywords": ["laravel", "aws", "iam", "rds", "authentication", "eks", "pod-identity", "credential-caching"],
+    "authors": [
+        {
+            "name": "Hack The Box",
+            "email": "oss@hackthebox.com"
+        }
+    ],
     "license": "MIT",
     "type": "library",
     "require": {
