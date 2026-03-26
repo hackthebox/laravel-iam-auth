@@ -1,20 +1,21 @@
 <?php
 
-namespace Hackthebox\RdsIamAuth\Connectors;
+namespace Hackthebox\IamAuth\Connectors;
 
-use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Database\Connectors\PostgresConnector;
 use InvalidArgumentException;
+use PDO;
 
-class RdsIamPostgresConnector extends PostgresConnector
+class IamPostgresConnector extends PostgresConnector
 {
     use InjectsIamToken;
 
-    public function __construct(private readonly RdsAuthTokenProvider $tokenProvider)
+    public function __construct(private readonly RdsTokenProvider $tokenProvider)
     {
     }
 
-    protected function getTokenProvider(): RdsAuthTokenProvider
+    protected function getTokenProvider(): RdsTokenProvider
     {
         return $this->tokenProvider;
     }
@@ -26,20 +27,20 @@ class RdsIamPostgresConnector extends PostgresConnector
      */
     private const SECURE_SSL_MODES = ['verify-ca', 'verify-full'];
 
-    public function connect(array $config): \PDO
+    public function connect(array $config): PDO
     {
         if (! empty($config['use_iam_auth'])) {
-            $sslmode = config('rds-iam-auth.pgsql_sslmode', 'verify-full');
+            $sslmode = config('iam-auth.pgsql_sslmode', 'verify-full');
 
             if (! in_array($sslmode, self::SECURE_SSL_MODES, true)) {
                 throw new InvalidArgumentException(
-                    "RDS IAM auth requires PostgreSQL sslmode to be 'verify-ca' or 'verify-full', got '{$sslmode}'. "
-                    ."Check the 'pgsql_sslmode' value in config/rds-iam-auth.php or the RDS_IAM_PGSQL_SSLMODE env var."
+                    "IAM auth requires PostgreSQL sslmode to be 'verify-ca' or 'verify-full', got '$sslmode'. "
+                    ."Check the 'pgsql_sslmode' value in config/iam-auth.php or the IAM_AUTH_PGSQL_SSLMODE env var."
                 );
             }
 
             $config['sslmode'] = $sslmode;
-            $config['sslrootcert'] ??= config('rds-iam-auth.ssl_ca_path');
+            $config['sslrootcert'] ??= config('iam-auth.ssl_ca_path');
         }
 
         return parent::connect($config);

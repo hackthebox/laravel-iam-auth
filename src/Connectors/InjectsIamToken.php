@@ -1,8 +1,8 @@
 <?php
 
-namespace Hackthebox\RdsIamAuth\Connectors;
+namespace Hackthebox\IamAuth\Connectors;
 
-use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use InvalidArgumentException;
 use PDO;
 
@@ -11,7 +11,7 @@ trait InjectsIamToken
     /**
      * Get the token provider instance.
      */
-    abstract protected function getTokenProvider(): RdsAuthTokenProvider;
+    abstract protected function getTokenProvider(): RdsTokenProvider;
 
     /**
      * Create a new PDO connection, injecting an IAM auth token as the
@@ -33,7 +33,7 @@ trait InjectsIamToken
             $config['host'],
             $port,
             $config['username'],
-            $config['region'] ?? config('rds-iam-auth.region'),
+            $config['region'] ?? config('iam-auth.region'),
         );
 
         $options = $this->applyIamSslOptions($options);
@@ -48,20 +48,20 @@ trait InjectsIamToken
     {
         if (empty($config['host']) || ! is_string($config['host'])) {
             throw new InvalidArgumentException(
-                'RDS IAM auth requires a non-empty "host" in the database connection config.'
+                'IAM auth requires a non-empty "host" in the database connection config.'
             );
         }
 
         if (empty($config['username']) || ! is_string($config['username'])) {
             throw new InvalidArgumentException(
-                'RDS IAM auth requires a non-empty "username" in the database connection config.'
+                'IAM auth requires a non-empty "username" in the database connection config.'
             );
         }
 
-        $region = $config['region'] ?? config('rds-iam-auth.region');
+        $region = $config['region'] ?? config('iam-auth.region');
         if (empty($region) || ! is_string($region)) {
             throw new InvalidArgumentException(
-                'RDS IAM auth requires a non-empty "region" in the database connection config or rds-iam-auth.region config.'
+                'IAM auth requires a non-empty "region" in the database connection config or iam-auth.region config.'
             );
         }
 
@@ -69,7 +69,7 @@ trait InjectsIamToken
             $port = (int) $config['port'];
             if ($port < 1 || $port > 65535) {
                 throw new InvalidArgumentException(
-                    "RDS IAM auth requires a valid port (1-65535), got '{$config['port']}'."
+                    "IAM auth requires a valid port (1-65535), got '{$config['port']}'."
                 );
             }
         }

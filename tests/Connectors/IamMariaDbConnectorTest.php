@@ -1,36 +1,36 @@
 <?php
 
-namespace Hackthebox\RdsIamAuth\Tests\Connectors;
+namespace Hackthebox\IamAuth\Tests\Connectors;
 
-use Hackthebox\RdsIamAuth\Connectors\RdsIamMariaDbConnector;
-use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
-use Hackthebox\RdsIamAuth\RdsIamAuthServiceProvider;
+use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
+use Hackthebox\IamAuth\IamAuthServiceProvider;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Database\Connectors\MariaDbConnector;
 use Mockery;
 use Orchestra\Testbench\TestCase;
 use PDO;
 
-class RdsIamMariaDbConnectorTest extends TestCase
+class IamMariaDbConnectorTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
-        return [RdsIamAuthServiceProvider::class];
+        return [IamAuthServiceProvider::class];
     }
 
     public function test_extends_mariadb_connector(): void
     {
-        $this->assertTrue(is_subclass_of(RdsIamMariaDbConnector::class, MariaDbConnector::class));
+        $this->assertTrue(is_subclass_of(IamMariaDbConnector::class, MariaDbConnector::class));
     }
 
     public function test_injects_iam_token_when_enabled(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')
             ->once()
             ->with('my-rds.cluster.eu-central-1.rds.amazonaws.com', 3306, 'app', 'eu-central-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(RdsIamMariaDbConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMariaDbConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -60,10 +60,10 @@ class RdsIamMariaDbConnectorTest extends TestCase
 
     public function test_skips_iam_when_not_enabled(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldNotReceive('getToken');
 
-        $connector = Mockery::mock(RdsIamMariaDbConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMariaDbConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 

@@ -1,20 +1,20 @@
 <?php
 
-namespace Hackthebox\RdsIamAuth\Connectors;
+namespace Hackthebox\IamAuth\Connectors;
 
-use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Database\Connectors\MySqlConnector;
 use PDO;
 
-class RdsIamMySqlConnector extends MySqlConnector
+class IamMySqlConnector extends MySqlConnector
 {
     use InjectsIamToken;
 
-    public function __construct(private readonly RdsAuthTokenProvider $tokenProvider)
+    public function __construct(private readonly RdsTokenProvider $tokenProvider)
     {
     }
 
-    protected function getTokenProvider(): RdsAuthTokenProvider
+    protected function getTokenProvider(): RdsTokenProvider
     {
         return $this->tokenProvider;
     }
@@ -22,7 +22,7 @@ class RdsIamMySqlConnector extends MySqlConnector
     protected function applyIamSslOptions(array $options): array
     {
         if (! isset($options[PDO::MYSQL_ATTR_SSL_CA])) {
-            $options[PDO::MYSQL_ATTR_SSL_CA] = config('rds-iam-auth.ssl_ca_path');
+            $options[PDO::MYSQL_ATTR_SSL_CA] = config('iam-auth.ssl_ca_path');
         }
 
         $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] ??= true;

@@ -1,6 +1,11 @@
-# Laravel RDS IAM Auth
+# Laravel IAM Auth
 
-RDS IAM authentication for Laravel MySQL, MariaDB, and PostgreSQL connections. Designed for EKS workloads using Pod Identity or IRSA — no sidecars, no static credentials.
+AWS IAM authentication for Laravel: RDS database connections and SDK credential caching. Designed for EKS workloads using Pod Identity or IRSA — no sidecars, no static credentials.
+
+## Features
+
+- **RDS IAM Auth** — overrides Laravel's MySQL, MariaDB, and PostgreSQL connectors to generate short-lived IAM auth tokens via the AWS SDK when `use_iam_auth` is enabled on a connection.
+- **AWS Credential Caching** — caches resolved AWS SDK credentials across PHP-FPM requests (APCu-first), benefiting all AWS SDK calls (S3, SQS, SES, etc.).
 
 ## How It Works
 
@@ -8,25 +13,27 @@ This package overrides Laravel's database connectors for MySQL, MariaDB, and Pos
 
 The package does **not** introduce a new database driver. Laravel's `MySqlConnection`, `MariaDbConnection`, and `PostgresConnection` are used as-is.
 
+The package also extends the aws/aws-sdk-php-laravel SDK singleton to cache resolved AWS credentials across PHP-FPM requests, benefiting all AWS SDK calls in your application.
+
 ## Requirements
 
 - PHP >= 8.2
 - Laravel 11 or 12
-- AWS SDK for PHP >= 3.249 (Pod Identity support)
-- APCu extension (recommended for production — caches tokens across FPM requests)
+- aws/aws-sdk-php-laravel >= 3.7 and aws/aws-sdk-php >= 3.249 (both installed automatically)
+- APCu extension (recommended for production — caches tokens and credentials across FPM requests)
 - RDS instance with IAM authentication enabled
-- SSL CA bundle (bundled — override via `RDS_IAM_SSL_CA_PATH` env if needed)
+- SSL CA bundle (bundled — override via `IAM_AUTH_SSL_CA_PATH` env if needed)
 
 ## Installation
 
 ```bash
-composer require hackthebox/laravel-rds-iam-auth
+composer require hackthebox/laravel-iam-auth
 ```
 
 The service provider is auto-discovered. To publish the config:
 
 ```bash
-php artisan vendor:publish --tag=rds-iam-auth-config
+php artisan vendor:publish --tag=iam-auth-config
 ```
 
 ## Configuration
@@ -94,16 +101,16 @@ DB_PASSWORD=secret
 
 ### Package Config
 
-The package config (`config/rds-iam-auth.php`):
+The package config (`config/iam-auth.php`):
 
 | Key | Default | Description |
 |---|---|---|
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
-| `credential_provider` | `default` | AWS credential provider for token signing. Override with `RDS_IAM_CREDENTIAL_PROVIDER` env. Supported: `default`, `environment`, `ecs`, `web_identity`, `instance_profile`, `sso`, `ini`. |
-| `cache_store` | `null` | Laravel cache store for token caching when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. |
-| `cache_ttl` | `600` (10 min) | Cache TTL in seconds (APCu and Laravel cache). Tokens are valid for 15 min. |
-| `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Overrides connection-level `sslmode` to prevent accidental downgrade. Override with `RDS_IAM_PGSQL_SSLMODE` env. |
-| `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `RDS_IAM_SSL_CA_PATH` env. |
+| `credential_provider` | `default` | AWS credential provider for all SDK operations (S3, SQS, RDS, etc.). Override with `IAM_AUTH_CREDENTIAL_PROVIDER` env. Supported: `default`, `environment`, `ecs`, `web_identity`, `instance_profile`, `sso`, `ini`. |
+| `cache_store` | `null` | Laravel cache store for caching RDS tokens and AWS credentials when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. Override with `IAM_AUTH_CACHE_STORE` env. |
+| `cache_ttl` | `600` (10 min) | RDS token cache TTL in seconds. Override with `IAM_AUTH_CACHE_TTL` env. |
+| `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Override with `IAM_AUTH_PGSQL_SSLMODE` env. |
+| `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `IAM_AUTH_SSL_CA_PATH` env. |
 
 ## RDS IAM Database User Setup
 
@@ -147,7 +154,27 @@ IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-r
 
 **Cache security note:** When using `file`, `redis`, or `memcached` as the cache store, the IAM token is stored in plaintext. The token is short-lived (15 min) and scoped to a specific DB user, but ensure your cache backend is appropriately secured. APCu stores tokens in shared memory within the PHP process, which is not accessible externally.
 
-**Bundled CA certificate:** The package includes the AWS RDS global CA bundle. This certificate bundle may become stale over time. If you encounter SSL verification errors, download the latest bundle from AWS and set `RDS_IAM_SSL_CA_PATH` to point to it.
+**Bundled CA certificate:** The package includes the AWS RDS global CA bundle. This certificate bundle may become stale over time. If you encounter SSL verification errors, download the latest bundle from AWS and set `IAM_AUTH_SSL_CA_PATH` to point to it.
+
+## AWS Credential Caching
+
+When using IAM roles (IRSA, Pod Identity, instance profiles), the AWS SDK resolves credentials via network calls to STS or IMDS on every PHP-FPM request. Under high traffic this adds latency and can hit rate limits.
+
+This package caches resolved AWS SDK credentials across requests, benefiting **all** AWS SDK calls made by your application (S3, SQS, SES, etc.), not just RDS token generation.
+
+The same `cache_store` setting controls both RDS token caching and AWS credential caching (with separate cache keys and TTLs). APCu is always preferred when available.
+
+**Important:** Credential caching only applies to AWS clients created through the SDK singleton (e.g. `app('aws')->createS3()`). Clients instantiated directly (`new S3Client([...])`) bypass the singleton and do not benefit from cached credentials. Always resolve clients via the container:
+
+```php
+// Correct: uses cached credentials
+$s3 = app('aws')->createS3();
+
+// Bypasses credential caching
+$s3 = new \Aws\S3\S3Client([...]);
+```
+
+**Cache security note:** Cached credentials are stored in plaintext in the configured backend. Ensure your cache backend is appropriately secured. APCu stores credentials in shared memory within the PHP process, which is not accessible externally.
 
 ## License
 

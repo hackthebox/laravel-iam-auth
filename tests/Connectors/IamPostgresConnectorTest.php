@@ -1,37 +1,37 @@
 <?php
 
-namespace Hackthebox\RdsIamAuth\Tests\Connectors;
+namespace Hackthebox\IamAuth\Tests\Connectors;
 
-use Hackthebox\RdsIamAuth\Connectors\RdsIamPostgresConnector;
-use Hackthebox\RdsIamAuth\RdsAuthTokenProvider;
-use Hackthebox\RdsIamAuth\RdsIamAuthServiceProvider;
+use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
+use Hackthebox\IamAuth\IamAuthServiceProvider;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Database\Connectors\PostgresConnector;
 use InvalidArgumentException;
 use Mockery;
 use Orchestra\Testbench\TestCase;
 use PDO;
 
-class RdsIamPostgresConnectorTest extends TestCase
+class IamPostgresConnectorTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
-        return [RdsIamAuthServiceProvider::class];
+        return [IamAuthServiceProvider::class];
     }
 
     public function test_extends_postgres_connector(): void
     {
-        $this->assertTrue(is_subclass_of(RdsIamPostgresConnector::class, PostgresConnector::class));
+        $this->assertTrue(is_subclass_of(IamPostgresConnector::class, PostgresConnector::class));
     }
 
     public function test_injects_iam_token_when_enabled(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')
             ->once()
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 5432, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -62,10 +62,10 @@ class RdsIamPostgresConnectorTest extends TestCase
 
     public function test_sets_sslmode_when_iam_enabled(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -94,12 +94,12 @@ class RdsIamPostgresConnectorTest extends TestCase
 
     public function test_forces_sslmode_from_package_config(): void
     {
-        config(['rds-iam-auth.pgsql_sslmode' => 'verify-full']);
+        config(['iam-auth.pgsql_sslmode' => 'verify-full']);
 
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -130,12 +130,12 @@ class RdsIamPostgresConnectorTest extends TestCase
 
     public function test_sslrootcert_appears_in_dsn(): void
     {
-        config(['rds-iam-auth.ssl_ca_path' => '/path/to/ca-bundle.pem']);
+        config(['iam-auth.ssl_ca_path' => '/path/to/ca-bundle.pem']);
 
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -164,15 +164,15 @@ class RdsIamPostgresConnectorTest extends TestCase
 
     public function test_connect_injects_token_and_ssl_dsn(): void
     {
-        config(['rds-iam-auth.ssl_ca_path' => '/path/to/ca-bundle.pem']);
+        config(['iam-auth.ssl_ca_path' => '/path/to/ca-bundle.pem']);
 
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')
             ->once()
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 5432, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -205,11 +205,11 @@ class RdsIamPostgresConnectorTest extends TestCase
 
     public function test_throws_on_insecure_sslmode(): void
     {
-        config(['rds-iam-auth.pgsql_sslmode' => 'prefer']);
+        config(['iam-auth.pgsql_sslmode' => 'prefer']);
 
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
 
-        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -230,12 +230,12 @@ class RdsIamPostgresConnectorTest extends TestCase
 
     public function test_allows_verify_ca_sslmode(): void
     {
-        config(['rds-iam-auth.pgsql_sslmode' => 'verify-ca']);
+        config(['iam-auth.pgsql_sslmode' => 'verify-ca']);
 
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -262,10 +262,10 @@ class RdsIamPostgresConnectorTest extends TestCase
 
     public function test_skips_iam_when_not_enabled(): void
     {
-        $tokenProvider = Mockery::mock(RdsAuthTokenProvider::class);
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldNotReceive('getToken');
 
-        $connector = Mockery::mock(RdsIamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
