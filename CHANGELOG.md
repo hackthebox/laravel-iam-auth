@@ -7,13 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [2.0.0] - 2026-03-20
-
 ### Added
 - AWS credential caching for PHP-FPM environments (APCu-first strategy)
 - Cached SDK credentials benefit all AWS services (S3, SQS, SES, etc.)
 - `cache_store` now also caches resolved AWS SDK credentials (separate cache keys and TTLs)
-- Configurable AWS credential provider via `credential_provider` config / `IAM_AUTH_CREDENTIAL_PROVIDER` env var
 - Integration with `aws/aws-sdk-php-laravel`: extends the SDK singleton with cached credentials
 - `credential_provider` config now applies to all AWS SDK operations, not just RDS
 
@@ -29,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 2. Rename published config: `config/rds-iam-auth.php` to `config/iam-auth.php`
 3. Update env vars: `RDS_IAM_*` to `IAM_AUTH_*`
 4. If referencing classes directly, update namespace from `Hackthebox\RdsIamAuth` to `Hackthebox\IamAuth`
+
+## [1.1.0] - 2026-03-20
+
+### Added
+- Configurable AWS credential provider via `credential_provider` config / `RDS_IAM_CREDENTIAL_PROVIDER` env var
+- Supported providers: `default`, `environment`, `ecs`, `web_identity`, `instance_profile`, `sso`, `ini`
 
 ## [1.0.2] - 2026-03-06
 
@@ -61,8 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for PHP 8.2, 8.3, and 8.4
 - Support for Laravel 11 and 12
 
-[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.0...HEAD
-[2.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.2...v2.0.0
+[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/hackthebox/laravel-iam-auth/releases/tag/v1.0.0
