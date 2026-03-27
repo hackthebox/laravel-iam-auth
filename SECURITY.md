@@ -19,4 +19,5 @@ Security fixes are applied to the latest minor release only.
 
 | Version    | Supported |
 |------------|-----------|
-| Latest 1.x | Yes       |
+| Latest 2.x | Yes       |
+| 1.x        | No        |
