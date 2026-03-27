@@ -1,0 +1,19 @@
+name: Update Packagist
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+
+jobs:
+  packagist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Packagist
+        env:
+          PACKAGIST_USERNAME: ${{ secrets.PACKAGIST_USERNAME }}
+          PACKAGIST_API_TOKEN: ${{ secrets.PACKAGIST_API_TOKEN }}
+        run: |
+          curl -sS -XPOST -H 'content-type:application/json' \
+            "https://packagist.org/api/update-package?username=${PACKAGIST_USERNAME}&apiToken=${PACKAGIST_API_TOKEN}" \
+            -d '{"repository":{"url":"https://packagist.org/packages/hackthebox/laravel-iam-auth"}}'
