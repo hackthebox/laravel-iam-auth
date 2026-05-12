@@ -5,6 +5,7 @@ namespace Hackthebox\IamAuth;
 use Aws\Credentials\CredentialsInterface;
 use Aws\Rds\AuthTokenGenerator;
 use Closure;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
 
@@ -21,6 +22,8 @@ class RdsTokenProvider
         $cacheKey = "rds_iam:$host:$port:$username:$region";
         $ttl = config('iam-auth.cache_ttl', 600);
         $sigKid = $this->currentSigKid();
+
+        $this->logTokenAccess($cacheKey, $sigKid);
 
         $sign = fn (): array => [
             'token' => $this->generateToken($host, $port, $username, $region),
@@ -108,5 +111,53 @@ class RdsTokenProvider
     protected function apcuStore(string $key, mixed $value, int $ttl): void
     {
         apcu_store($key, $value, $ttl);
+    }
+
+    /**
+     * Emit a debug log line describing the current state of the credential
+     * and token caches. Used during the 1045 rejection investigation to
+     * correlate cached-credential health with rejection events.
+     *
+     * Gated on iam-auth.debug to keep the per-DB-connection volume off in
+     * production by default. Never logs secrets; only an AccessKeyId prefix
+     * and the truncated sig_kid (already a one-way hash).
+     */
+    private function logTokenAccess(string $cacheKey, string $currentSigKid): void
+    {
+        if (! config('iam-auth.debug', false)) {
+            return;
+        }
+
+        $creds = null;
+        $tokenEntry = null;
+
+        if ($this->apcuAvailable()) {
+            $cached = apcu_fetch(AwsCredentialCache::CACHE_KEY, $credFound);
+            if ($credFound && $cached instanceof CredentialsInterface) {
+                $creds = $cached;
+            }
+            $tokenEntry = apcu_fetch($cacheKey, $tokenFound) ?: null;
+            if (! $tokenFound) {
+                $tokenEntry = null;
+            }
+        }
+
+        Log::debug('iam-auth.token-access', [
+            'cache_key' => $cacheKey,
+            'current_sig_kid' => $currentSigKid,
+            'token_cache_hit' => is_array($tokenEntry) && isset($tokenEntry['sig_kid']),
+            'cached_sig_kid' => is_array($tokenEntry) ? ($tokenEntry['sig_kid'] ?? null) : null,
+            'sig_kid_match' => is_array($tokenEntry)
+                && isset($tokenEntry['sig_kid'])
+                && $tokenEntry['sig_kid'] === $currentSigKid,
+            'cred_present' => $creds !== null,
+            'cred_is_expired' => $creds?->isExpired(),
+            'cred_expires_in_s' => $creds && $creds->getExpiration()
+                ? $creds->getExpiration() - time()
+                : null,
+            'cred_access_key_prefix' => $creds?->getAccessKeyId()
+                ? substr($creds->getAccessKeyId(), 0, 8)
+                : null,
+        ]);
     }
 }
