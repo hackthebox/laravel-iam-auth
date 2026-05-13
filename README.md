@@ -165,7 +165,7 @@ The package guards against a failure mode where a cached IAM token would be reus
 
 Both guards are always on and agnostic to session-duration and agent-refresh-cadence configuration. No credential secrets are logged or persisted; only the truncated `sig_kid` and a `signed_at` timestamp accompany the token in the cache.
 
-Operators who observe clock drift or want more aggressive credential refresh (e.g. for CI smoke tests against rotating credentials) can tune `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` (default `10` seconds). Negative values are clamped to `0`.
+Operators who observe clock drift or want more aggressive credential refresh (e.g. for CI smoke tests against rotating credentials) can tune `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` (default `10` seconds). Negative or non-numeric values fall back to the default and emit a boot-time warning.
 
 ## AWS Credential Caching
 

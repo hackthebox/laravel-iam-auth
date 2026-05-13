@@ -101,6 +101,8 @@ class AwsCredentialCache
         return $credentials;
     }
 
+    public const DEFAULT_CREDENTIALS_EXPIRY_BUFFER = 10;
+
     private function computeTtl(CredentialsInterface $credentials): int
     {
         $expiration = $credentials->getExpiration();
@@ -111,9 +113,18 @@ class AwsCredentialCache
             return 3600;
         }
 
-        $buffer = max(0, (int) config('iam-auth.credentials_expiry_buffer', 10));
+        return max(0, $expiration - time() - $this->credentialsExpiryBuffer());
+    }
 
-        return max(0, $expiration - time() - $buffer);
+    private function credentialsExpiryBuffer(): int
+    {
+        $value = config('iam-auth.credentials_expiry_buffer', self::DEFAULT_CREDENTIALS_EXPIRY_BUFFER);
+
+        if (! is_numeric($value) || (int) $value < 0) {
+            return self::DEFAULT_CREDENTIALS_EXPIRY_BUFFER;
+        }
+
+        return (int) $value;
     }
 
 }

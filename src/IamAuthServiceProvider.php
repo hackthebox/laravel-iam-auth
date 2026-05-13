@@ -9,6 +9,7 @@ use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Illuminate\Contracts\Foundation\Application;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 
@@ -59,9 +60,31 @@ class IamAuthServiceProvider extends ServiceProvider
             config(['iam-auth.ssl_ca_path' => self::BUNDLED_CA_PATH]);
         }
 
+        $this->validateCredentialsExpiryBuffer(config('iam-auth.credentials_expiry_buffer'));
+
         $this->publishes([
             __DIR__.'/../config/iam-auth.php' => config_path('iam-auth.php'),
         ], 'iam-auth-config');
+    }
+
+    private function validateCredentialsExpiryBuffer(mixed $value): void
+    {
+        $default = AwsCredentialCache::DEFAULT_CREDENTIALS_EXPIRY_BUFFER;
+
+        if (! is_numeric($value)) {
+            Log::warning("iam-auth: credentials_expiry_buffer must be numeric; falling back to default ({$default}s)", [
+                'value' => $value,
+                'type' => gettype($value),
+            ]);
+
+            return;
+        }
+
+        if ((int) $value < 0) {
+            Log::warning("iam-auth: credentials_expiry_buffer is negative; falling back to default ({$default}s)", [
+                'value' => $value,
+            ]);
+        }
     }
 
     private function buildCredentialProvider(): callable
