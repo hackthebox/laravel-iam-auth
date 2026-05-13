@@ -163,7 +163,9 @@ The package guards against a failure mode where a cached IAM token would be reus
 - **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `AwsCredentialCache::resolve()` throws a `RuntimeException` instead of passing them to the SigV4 signer. Callers should retry after a short backoff rather than catching and ignoring.
 - **Cached RDS tokens carry a signing-credentials fingerprint.** Each cached entry is `{ token, sig_kid, signed_at }`, where `sig_kid` is a truncated SHA-256 of the `AccessKeyId + SecurityToken` that signed the token. On retrieval, the package compares the entry's `sig_kid` against the current credentials' fingerprint; on mismatch (or any non-conforming legacy entry), the token is regenerated and re-cached. APCu cache-miss atomicity (`apcu_entry`) is preserved.
 
-Both guards are always on, agnostic to session-duration and agent-refresh-cadence configuration, and add no new config keys. No credential secrets are logged or persisted; only the truncated `sig_kid` and a `signed_at` timestamp accompany the token in the cache.
+Both guards are always on and agnostic to session-duration and agent-refresh-cadence configuration. No credential secrets are logged or persisted; only the truncated `sig_kid` and a `signed_at` timestamp accompany the token in the cache.
+
+Operators who observe clock drift or want more aggressive credential refresh (e.g. for CI smoke tests against rotating credentials) can tune `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` (default `10` seconds). Negative values are clamped to `0`.
 
 ## AWS Credential Caching
 

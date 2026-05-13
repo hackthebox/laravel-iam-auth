@@ -111,7 +111,7 @@ class AwsCredentialCache
             return 3600;
         }
 
-        $buffer = (int) config('iam-auth.credentials_expiry_buffer', 10);
+        $buffer = max(0, (int) config('iam-auth.credentials_expiry_buffer', 10));
 
         return max(0, $expiration - time() - $buffer);
     }

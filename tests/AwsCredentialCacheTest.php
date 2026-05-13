@@ -241,6 +241,27 @@ class AwsCredentialCacheTest extends TestCase
         $cache->resolve($provider);
     }
 
+    public function test_negative_buffer_is_clamped_to_zero(): void
+    {
+        config(['iam-auth.credentials_expiry_buffer' => -100]);
+
+        $provider = fn () => new Credentials('access-key', 'secret-key', 'token', time() + 3600);
+
+        $cache = $this->cacheWithApcu(fetched: null);
+
+        $capturedTtl = null;
+        $cache->shouldReceive('apcuStore')
+            ->once()
+            ->andReturnUsing(function ($key, $value, $ttl) use (&$capturedTtl) {
+                $capturedTtl = $ttl;
+            });
+
+        $cache->resolve($provider);
+
+        $this->assertLessThanOrEqual(3600, $capturedTtl,
+            'Negative buffer must be clamped to 0; TTL must never exceed credential lifetime.');
+    }
+
     public function test_laravel_cache_does_not_persist_expired_on_arrival_credentials(): void
     {
         config(['iam-auth.cache_store' => 'file']);
