@@ -106,12 +106,14 @@ class AwsCredentialCache
         $expiration = $credentials->getExpiration();
 
         if ($expiration === null) {
+            // No expiration reported: cache for 1 hour. Reasonable default for
+            // synthetic providers (mostly tests) that don't surface an expiry.
             return 3600;
         }
 
-        // 300s buffer covers clock drift, SDK serving latency, and a
-        // worker briefly holding the deserialized object past eviction.
-        return max(0, $expiration - time() - 300);
+        $buffer = (int) config('iam-auth.credentials_expiry_buffer', 10);
+
+        return max(0, $expiration - time() - $buffer);
     }
 
 }

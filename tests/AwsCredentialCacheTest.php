@@ -192,31 +192,47 @@ class AwsCredentialCacheTest extends TestCase
         $this->assertSame(1, $callCount);
     }
 
-    public function test_credentials_within_safety_buffer_are_not_persisted(): void
+    public function test_credentials_expiry_buffer_is_configurable(): void
     {
-        // Credentials that expire in 200s. Under the new 300s buffer this
-        // computes a negative TTL (so write is skipped). Under a 60s buffer
-        // the TTL would be 140s and the entry would be cached. The skip is
-        // the desirable behavior: don't persist credentials that will
-        // expire before a refresh round-trip can plausibly absorb the
-        // boundary, especially under clock drift.
-        config(['iam-auth.cache_store' => 'file']);
+        config([
+            'iam-auth.cache_store' => 'file',
+            'iam-auth.credentials_expiry_buffer' => 100,
+        ]);
         cache()->store('file')->flush();
 
         $provider = fn () => new Credentials('access-key', 'secret-key', 'token', time() + 200);
 
         $cache = $this->cacheWithoutApcu();
+        $cache->resolve($provider);
 
+        $cached = cache()->store('file')->get('iam_auth:aws_credentials');
+        $this->assertInstanceOf(Credentials::class, $cached,
+            'With buffer=100 and 200s remaining, the entry should be cached (TTL=100).');
+    }
+
+    public function test_credentials_within_configured_buffer_are_not_persisted(): void
+    {
+        config([
+            'iam-auth.cache_store' => 'file',
+            'iam-auth.credentials_expiry_buffer' => 300,
+        ]);
+        cache()->store('file')->flush();
+
+        $provider = fn () => new Credentials('access-key', 'secret-key', 'token', time() + 200);
+
+        $cache = $this->cacheWithoutApcu();
         $cache->resolve($provider);
 
         $this->assertNull(
             cache()->store('file')->get('iam_auth:aws_credentials'),
-            'Credentials within the 300s safety buffer must not be persisted.'
+            'With buffer=300 and only 200s remaining, the entry must not be persisted.'
         );
     }
 
-    public function test_apcu_credentials_within_safety_buffer_are_not_persisted(): void
+    public function test_apcu_credentials_within_configured_buffer_are_not_persisted(): void
     {
+        config(['iam-auth.credentials_expiry_buffer' => 300]);
+
         $provider = fn () => new Credentials('access-key', 'secret-key', 'token', time() + 200);
 
         $cache = $this->cacheWithApcu(fetched: null);

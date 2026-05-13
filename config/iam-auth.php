@@ -64,6 +64,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | AWS Credentials Expiry Buffer
+    |--------------------------------------------------------------------------
+    |
+    | How many seconds before the AWS SDK credentials' reported expiration
+    | the cache should evict them. Acts as a safety margin against clock
+    | drift and serving latency. Smaller values cache credentials longer
+    | and hit the credential provider less often; larger values refresh
+    | more aggressively at the cost of higher Pod Identity Agent / STS
+    | load near session boundaries.
+    |
+    | The default of 10s is appropriate for NTP-synced infrastructure
+    | (typical sub-second drift). Increase if you observe clock drift or
+    | use very short-lived sessions.
+    |
+    */
+
+    'credentials_expiry_buffer' => (int) env('IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER', 10),
+
+    /*
+    |--------------------------------------------------------------------------
     | PostgreSQL SSL Mode
     |--------------------------------------------------------------------------
     |
