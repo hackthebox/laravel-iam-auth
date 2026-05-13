@@ -2,9 +2,13 @@
 
 namespace Hackthebox\IamAuth\Connectors;
 
+use Aws\Credentials\CredentialsInterface;
+use Hackthebox\IamAuth\AwsCredentialCache;
 use Hackthebox\IamAuth\RdsTokenProvider;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use PDO;
+use PDOException;
 
 trait InjectsIamToken
 {
@@ -29,16 +33,63 @@ trait InjectsIamToken
             ? (int) $config['port']
             : $this->getDefaultPort();
 
+        $region = $config['region'] ?? config('iam-auth.region');
+        $cacheKey = "rds_iam:{$config['host']}:$port:{$config['username']}:$region";
+
         $config['password'] = $this->getTokenProvider()->getToken(
             $config['host'],
             $port,
             $config['username'],
-            $config['region'] ?? config('iam-auth.region'),
+            $region,
         );
 
         $options = $this->applyIamSslOptions($options);
 
-        return parent::createConnection($dsn, $config, $options);
+        try {
+            return parent::createConnection($dsn, $config, $options);
+        } catch (PDOException $e) {
+            if ($this->isAccessDenied1045($e)) {
+                $this->logRejection1045($config, $cacheKey);
+            }
+            throw $e;
+        }
+    }
+
+    private function isAccessDenied1045(PDOException $e): bool
+    {
+        // mysqlnd surfaces 1045 in $e->errorInfo[1] when available, otherwise
+        // only in the message. Match defensively on both.
+        if (isset($e->errorInfo[1]) && (int) $e->errorInfo[1] === 1045) {
+            return true;
+        }
+
+        return str_contains($e->getMessage(), '1045') && str_contains($e->getMessage(), 'Access denied');
+    }
+
+    private function logRejection1045(array $config, string $cacheKey): void
+    {
+        $creds = null;
+
+        if (function_exists('apcu_fetch') && apcu_enabled()) {
+            $cached = apcu_fetch(AwsCredentialCache::CACHE_KEY, $credFound);
+            if ($credFound && $cached instanceof CredentialsInterface) {
+                $creds = $cached;
+            }
+        }
+
+        Log::warning('iam-auth.rds-rejected-1045', [
+            'cache_key' => $cacheKey,
+            'username' => $config['username'] ?? null,
+            'host' => $config['host'] ?? null,
+            'cred_present' => $creds !== null,
+            'cred_is_expired' => $creds?->isExpired(),
+            'cred_expires_in_s' => $creds && $creds->getExpiration()
+                ? $creds->getExpiration() - time()
+                : null,
+            'cred_access_key_prefix' => $creds?->getAccessKeyId()
+                ? substr($creds->getAccessKeyId(), 0, 8)
+                : null,
+        ]);
     }
 
     /**

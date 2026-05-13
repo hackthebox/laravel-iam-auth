@@ -8,7 +8,9 @@ class AwsCredentialCache
 {
     use ValidatesCacheStore;
 
-    private const CACHE_KEY = 'iam_auth:aws_credentials';
+    public const CACHE_KEY = 'iam_auth:aws_credentials';
+
+    public const DEFAULT_CREDENTIALS_EXPIRY_BUFFER = 10;
 
     /**
      * Resolve credentials, using APCu or Laravel cache when available.
@@ -100,8 +102,6 @@ class AwsCredentialCache
 
         return $credentials;
     }
-
-    public const DEFAULT_CREDENTIALS_EXPIRY_BUFFER = 10;
 
     private function computeTtl(CredentialsInterface $credentials): int
     {
