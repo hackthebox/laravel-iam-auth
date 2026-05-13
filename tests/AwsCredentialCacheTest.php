@@ -241,6 +241,34 @@ class AwsCredentialCacheTest extends TestCase
         $cache->resolve($provider);
     }
 
+    public function test_credentials_without_expiration_are_not_persisted(): void
+    {
+        config(['iam-auth.cache_store' => 'file']);
+        cache()->store('file')->flush();
+
+        // Static credentials (no expiration). The cache can't reason about a
+        // lifetime it doesn't know, so the entry must be skipped entirely.
+        $provider = fn () => new Credentials('access-key', 'secret-key');
+
+        $cache = $this->cacheWithoutApcu();
+        $cache->resolve($provider);
+
+        $this->assertNull(
+            cache()->store('file')->get('iam_auth:aws_credentials'),
+            'Credentials without an expiration must not be persisted.'
+        );
+    }
+
+    public function test_apcu_credentials_without_expiration_are_not_persisted(): void
+    {
+        $provider = fn () => new Credentials('access-key', 'secret-key');
+
+        $cache = $this->cacheWithApcu(fetched: null);
+        $cache->shouldNotReceive('apcuStore');
+
+        $cache->resolve($provider);
+    }
+
     public function test_negative_buffer_falls_back_to_default(): void
     {
         config(['iam-auth.credentials_expiry_buffer' => -100]);

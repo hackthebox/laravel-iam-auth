@@ -108,9 +108,7 @@ class AwsCredentialCache
         $expiration = $credentials->getExpiration();
 
         if ($expiration === null) {
-            // No expiration reported: cache for 1 hour. Reasonable default for
-            // synthetic providers (mostly tests) that don't surface an expiry.
-            return 3600;
+            return 0;
         }
 
         return max(0, $expiration - time() - $this->credentialsExpiryBuffer());
