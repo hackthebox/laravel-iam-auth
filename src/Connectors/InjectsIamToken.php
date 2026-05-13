@@ -48,25 +48,27 @@ trait InjectsIamToken
         try {
             return parent::createConnection($dsn, $config, $options);
         } catch (PDOException $e) {
-            if ($this->isAccessDenied1045($e)) {
-                $this->logRejection1045($config, $cacheKey);
+            if ($this->isAuthRejection($e)) {
+                $this->logAuthRejection($config, $cacheKey);
             }
             throw $e;
         }
     }
 
-    private function isAccessDenied1045(PDOException $e): bool
+    private function isAuthRejection(PDOException $e): bool
     {
-        // mysqlnd surfaces 1045 in $e->errorInfo[1] when available, otherwise
-        // only in the message. Match defensively on both.
-        if (isset($e->errorInfo[1]) && (int) $e->errorInfo[1] === 1045) {
-            return true;
-        }
+        // PG uses SQLSTATE class 28; mysqlnd reports native 1045 under
+        // SQLSTATE 'HY000'. Message fallback covers drivers that don't
+        // populate errorInfo reliably.
+        $sqlstate = (string) ($e->errorInfo[0] ?? '');
+        $message = $e->getMessage();
 
-        return str_contains($e->getMessage(), '1045') && str_contains($e->getMessage(), 'Access denied');
+        return str_starts_with($sqlstate, '28')
+            || str_contains($message, 'SQLSTATE[28')
+            || str_contains($message, '[1045] Access denied');
     }
 
-    private function logRejection1045(array $config, string $cacheKey): void
+    private function logAuthRejection(array $config, string $cacheKey): void
     {
         $creds = null;
 
@@ -77,7 +79,7 @@ trait InjectsIamToken
             }
         }
 
-        Log::warning('iam-auth.rds-rejected-1045', [
+        Log::warning('iam-auth.rds-auth-rejected', [
             'cache_key' => $cacheKey,
             'username' => $config['username'] ?? null,
             'host' => $config['host'] ?? null,

@@ -6,10 +6,12 @@ use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Database\Connectors\PostgresConnector;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Mockery;
 use Orchestra\Testbench\TestCase;
 use PDO;
+use PDOException;
 
 class IamPostgresConnectorTest extends TestCase
 {
@@ -289,5 +291,99 @@ class IamPostgresConnectorTest extends TestCase
         ];
 
         $connector->connect($config);
+    }
+
+    /**
+     * @dataProvider postgresAuthRejectionScenarios
+     */
+    public function test_postgres_auth_rejection_logs_structured_warning(
+        string $sqlstate,
+        string $message,
+    ): void {
+        $connector = $this->mockConnectorThatThrows($this->makePdoException($sqlstate, $message));
+
+        Log::spy();
+
+        try {
+            $connector->createConnection('pgsql:host=...', $this->iamConfig(), []);
+            $this->fail('Expected PDOException to propagate.');
+        } catch (PDOException) {
+            // expected
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(fn (string $msg) => $msg === 'iam-auth.rds-auth-rejected');
+    }
+
+    public static function postgresAuthRejectionScenarios(): array
+    {
+        return [
+            'invalid_password (28P01)' => [
+                '28P01',
+                'SQLSTATE[28P01]: Invalid authorization specification: 7 FATAL: password authentication failed for user "iam_user"',
+            ],
+            'invalid_authorization_specification (28000)' => [
+                '28000',
+                'SQLSTATE[28000]: Invalid authorization specification: 7 FATAL: no pg_hba.conf entry for host "10.0.4.26", user "iam_user"',
+            ],
+        ];
+    }
+
+    public function test_postgres_non_auth_pdo_exception_does_not_log_warning(): void
+    {
+        // SQLSTATE 42501 = insufficient_privilege (Class 42 — access rule
+        // violation, not Class 28). Authorization-adjacent but per-statement,
+        // not a connection-time auth rejection.
+        $connector = $this->mockConnectorThatThrows(
+            $this->makePdoException('42501', "SQLSTATE[42501]: Insufficient privilege: 7 ERROR: permission denied for table users")
+        );
+
+        Log::spy();
+
+        try {
+            $connector->createConnection('pgsql:host=...', $this->iamConfig(), []);
+        } catch (PDOException) {
+            // expected
+        }
+
+        Log::shouldNotHaveReceived('warning',
+            [Mockery::pattern('/rds-auth-rejected/'), Mockery::any()]);
+    }
+
+    private function mockConnectorThatThrows(PDOException $exception): IamPostgresConnector
+    {
+        $tokenProvider = Mockery::mock(RdsTokenProvider::class);
+        $tokenProvider->shouldReceive('getToken')->andReturn('iam-token-value');
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $connector->shouldReceive('createPdoConnection')->andThrow($exception);
+
+        return $connector;
+    }
+
+    private function makePdoException(string $sqlstate, string $message): PDOException
+    {
+        $exception = new PDOException($message);
+        $exception->errorInfo = [$sqlstate, null, $message];
+
+        return $exception;
+    }
+
+    private function iamConfig(): array
+    {
+        return [
+            'host' => 'my-rds.cluster.us-east-1.rds.amazonaws.com',
+            'port' => 5432,
+            'database' => 'mydb',
+            'username' => 'iam_user',
+            'password' => '',
+            'use_iam_auth' => true,
+            'region' => 'us-east-1',
+            'charset' => 'utf8',
+        ];
     }
 }
