@@ -113,14 +113,9 @@ return [
     | Debug Logging
     |--------------------------------------------------------------------------
     |
-    | When true, emit a per-getToken debug log line ('iam-auth.token-access')
-    | with the credential and token cache state. Used to correlate RDS auth
-    | rejections with the package's cache state. Never logs secrets; only
-    | an AccessKeyId prefix and boolean status. High volume; enable only
-    | for short-duration investigation soaks.
-    |
-    | The unconditional 'iam-auth.rds-rejected-1045' warning fires regardless
-    | of this flag, since 1045 rejections are infrequent and always relevant.
+    | When true, enables verbose debug logging of credential and token cache
+    | state for short investigation soaks. High log volume; do not enable
+    | in steady-state production. No credential secrets are logged.
     |
     */
 
