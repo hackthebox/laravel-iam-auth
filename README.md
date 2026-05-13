@@ -158,12 +158,12 @@ IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-r
 
 ## Defensive Behavior
 
-Two guards protect against a failure mode where a cached IAM token signs a connection with AWS credentials whose underlying STS session has been invalidated server-side (rotation, revocation, or session reaping) while the client-reported expiration has not yet passed:
+The package guards against a failure mode where a cached IAM token would be reused with AWS credentials whose underlying STS session has rotated (or evicted from the credential cache) since the token was signed. RDS would otherwise accept the SigV4 signature but reject the now-stale session token, surfacing as `Access denied for user '...' (using password: YES)`.
 
-- **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already expired, `AwsCredentialCache::resolve()` throws a `RuntimeException` instead of passing them to the SigV4 signer. Callers should retry after a short backoff rather than catching and ignoring.
-- **Token cache is bound to its signing credentials.** The RDS token cache key includes a short SHA-256 fingerprint of the credentials that signed it. When the underlying AWS credentials rotate, the cache key changes, the old token entry is naturally orphaned at its TTL, and the next request mints a fresh token.
+- **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `AwsCredentialCache::resolve()` throws a `RuntimeException` instead of passing them to the SigV4 signer. Callers should retry after a short backoff rather than catching and ignoring.
+- **Cached RDS tokens carry a signing-credentials fingerprint.** Each cached entry is `{ token, sig_kid, signed_at }`, where `sig_kid` is a truncated SHA-256 of the `AccessKeyId + SecurityToken` that signed the token. On retrieval, the package compares the entry's `sig_kid` against the current credentials' fingerprint; on mismatch (or any non-conforming legacy entry), the token is regenerated and re-cached. APCu cache-miss atomicity (`apcu_entry`) is preserved.
 
-Both behaviors are always on. No new config keys.
+Both guards are always on, agnostic to session-duration and agent-refresh-cadence configuration, and add no new config keys. No credential secrets are logged or persisted; only the truncated `sig_kid` and a `signed_at` timestamp accompany the token in the cache.
 
 ## AWS Credential Caching
 

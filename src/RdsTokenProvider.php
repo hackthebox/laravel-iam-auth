@@ -18,12 +18,24 @@ class RdsTokenProvider
 
     public function getToken(string $host, int $port, string $username, string $region): string
     {
-        $cacheKey = $this->cacheKey($host, $port, $username, $region);
+        $cacheKey = "rds_iam:$host:$port:$username:$region";
         $ttl = config('iam-auth.cache_ttl', 600);
-        $generator = fn () => $this->generateToken($host, $port, $username, $region);
+        $sigKid = $this->currentSigKid();
+
+        $sign = fn (): array => [
+            'token' => $this->generateToken($host, $port, $username, $region),
+            'sig_kid' => $sigKid,
+            'signed_at' => time(),
+        ];
 
         if ($this->apcuAvailable()) {
-            return $this->apcuEntry($cacheKey, $generator, $ttl);
+            $entry = $this->apcuEntry($cacheKey, $sign, $ttl);
+            if (! $this->entryMatches($entry, $sigKid)) {
+                $entry = $sign();
+                $this->apcuStore($cacheKey, $entry, $ttl);
+            }
+
+            return $entry['token'];
         }
 
         $store = config('iam-auth.cache_store');
@@ -31,27 +43,29 @@ class RdsTokenProvider
         if ($store) {
             $this->assertSafeCacheStore($store);
 
-            return $this->resolveCacheStore($store)->remember($cacheKey, $ttl, $generator);
+            $cache = $this->resolveCacheStore($store);
+            $entry = $cache->get($cacheKey);
+            if (! $this->entryMatches($entry, $sigKid)) {
+                $entry = $sign();
+                $cache->put($cacheKey, $entry, $ttl);
+            }
+
+            return $entry['token'];
         }
 
-        return $generator();
+        return $sign()['token'];
     }
 
-    /**
-     * Fingerprint-suffixed so a cached pre-signed URL is orphaned the
-     * instant its signing credentials rotate, preventing reuse with a
-     * potentially server-side-dead STS session.
-     */
-    private function cacheKey(string $host, int $port, string $username, string $region): string
+    private function entryMatches(mixed $entry, string $sigKid): bool
     {
-        $fingerprint = $this->credentialFingerprint($this->resolveCurrentCredentials());
-
-        return "rds_iam:$host:$port:$username:$region:$fingerprint";
+        return is_array($entry)
+            && isset($entry['token'], $entry['sig_kid'])
+            && $entry['sig_kid'] === $sigKid;
     }
 
-    private function resolveCurrentCredentials(): CredentialsInterface
+    private function currentSigKid(): string
     {
-        return ($this->credentialProvider)()->wait();
+        return $this->credentialFingerprint(($this->credentialProvider)()->wait());
     }
 
     private function credentialFingerprint(CredentialsInterface $credentials): string
@@ -86,8 +100,13 @@ class RdsTokenProvider
         return function_exists('apcu_entry') && apcu_enabled();
     }
 
-    protected function apcuEntry(string $key, callable $generator, int $ttl): string
+    protected function apcuEntry(string $key, callable $generator, int $ttl): mixed
     {
         return apcu_entry($key, $generator, $ttl);
+    }
+
+    protected function apcuStore(string $key, mixed $value, int $ttl): void
+    {
+        apcu_store($key, $value, $ttl);
     }
 }
