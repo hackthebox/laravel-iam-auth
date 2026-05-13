@@ -2,6 +2,7 @@
 
 namespace Hackthebox\IamAuth;
 
+use Aws\Credentials\CredentialsInterface;
 use Aws\Rds\AuthTokenGenerator;
 use Closure;
 use RuntimeException;
@@ -17,12 +18,12 @@ class RdsTokenProvider
 
     public function getToken(string $host, int $port, string $username, string $region): string
     {
-        $cacheKey = "rds_iam:$host:$port:$username:$region";
+        $cacheKey = $this->cacheKey($host, $port, $username, $region);
         $ttl = config('iam-auth.cache_ttl', 600);
         $generator = fn () => $this->generateToken($host, $port, $username, $region);
 
-        if (function_exists('apcu_entry') && apcu_enabled()) {
-            return apcu_entry($cacheKey, $generator, $ttl);
+        if ($this->apcuAvailable()) {
+            return $this->apcuEntry($cacheKey, $generator, $ttl);
         }
 
         $store = config('iam-auth.cache_store');
@@ -34,6 +35,30 @@ class RdsTokenProvider
         }
 
         return $generator();
+    }
+
+    /**
+     * Fingerprint-suffixed so a cached pre-signed URL is orphaned the
+     * instant its signing credentials rotate, preventing reuse with a
+     * potentially server-side-dead STS session.
+     */
+    private function cacheKey(string $host, int $port, string $username, string $region): string
+    {
+        $fingerprint = $this->credentialFingerprint($this->resolveCurrentCredentials());
+
+        return "rds_iam:$host:$port:$username:$region:$fingerprint";
+    }
+
+    private function resolveCurrentCredentials(): CredentialsInterface
+    {
+        return ($this->credentialProvider)()->wait();
+    }
+
+    private function credentialFingerprint(CredentialsInterface $credentials): string
+    {
+        $material = $credentials->getAccessKeyId().($credentials->getSecurityToken() ?? '');
+
+        return substr(hash('sha256', $material), 0, 16);
     }
 
     private function generateToken(string $host, int $port, string $username, string $region): string
@@ -54,5 +79,15 @@ class RdsTokenProvider
     protected function createAuthTokenGenerator(): AuthTokenGenerator
     {
         return new AuthTokenGenerator($this->credentialProvider);
+    }
+
+    protected function apcuAvailable(): bool
+    {
+        return function_exists('apcu_entry') && apcu_enabled();
+    }
+
+    protected function apcuEntry(string $key, callable $generator, int $ttl): string
+    {
+        return apcu_entry($key, $generator, $ttl);
     }
 }

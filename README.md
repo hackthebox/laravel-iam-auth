@@ -156,6 +156,15 @@ IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-r
 
 **Bundled CA certificate:** The package includes the AWS RDS global CA bundle. This certificate bundle may become stale over time. If you encounter SSL verification errors, download the latest bundle from AWS and set `IAM_AUTH_SSL_CA_PATH` to point to it.
 
+## Defensive Behavior
+
+Two guards protect against a failure mode where a cached IAM token signs a connection with AWS credentials whose underlying STS session has been invalidated server-side (rotation, revocation, or session reaping) while the client-reported expiration has not yet passed:
+
+- **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already expired, `AwsCredentialCache::resolve()` throws a `RuntimeException` instead of passing them to the SigV4 signer. Callers should retry after a short backoff rather than catching and ignoring.
+- **Token cache is bound to its signing credentials.** The RDS token cache key includes a short SHA-256 fingerprint of the credentials that signed it. When the underlying AWS credentials rotate, the cache key changes, the old token entry is naturally orphaned at its TTL, and the next request mints a fresh token.
+
+Both behaviors are always on. No new config keys.
+
 ## AWS Credential Caching
 
 When using IAM roles (IRSA, Pod Identity, instance profiles), the AWS SDK resolves credentials via network calls to STS or IMDS on every PHP-FPM request. Under high traffic this adds latency and can hit rate limits.

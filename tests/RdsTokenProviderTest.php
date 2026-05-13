@@ -85,7 +85,10 @@ class RdsTokenProviderTest extends TestCase
         $this->assertSame('generated-iam-token', $token1);
         $this->assertSame($token1, $token2);
 
-        $cached = cache()->store('file')->get('rds_iam:my-rds.cluster.us-east-1.rds.amazonaws.com:3306:app_user:us-east-1');
+        $fingerprint = substr(hash('sha256', 'test-key'.'test-token'), 0, 16);
+        $cached = cache()->store('file')->get(
+            "rds_iam:my-rds.cluster.us-east-1.rds.amazonaws.com:3306:app_user:us-east-1:$fingerprint"
+        );
         $this->assertSame('generated-iam-token', $cached);
     }
 
@@ -132,6 +135,123 @@ class RdsTokenProviderTest extends TestCase
         $this->expectExceptionMessage("cannot use the 'dynamo' cache store");
 
         $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
+    }
+
+    public function test_rotated_credentials_generate_fresh_token(): void
+    {
+        config(['iam-auth.cache_store' => 'file']);
+        cache()->store('file')->flush();
+
+        $credsA = new Credentials('key-A', 'secret-A', 'token-A', time() + 3600);
+        $credsB = new Credentials('key-B', 'secret-B', 'token-B', time() + 3600);
+        $queue = [$credsA, $credsA, $credsB];
+        $credentialProvider = function () use (&$queue) {
+            return Create::promiseFor(array_shift($queue));
+        };
+
+        $signCount = 0;
+        $generator = Mockery::mock(AuthTokenGenerator::class);
+        $generator->shouldReceive('createToken')
+            ->andReturnUsing(function () use (&$signCount) {
+                return 'token-'.(++$signCount);
+            });
+
+        $provider = Mockery::mock(RdsTokenProvider::class, [$credentialProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $provider->shouldReceive('createAuthTokenGenerator')->andReturn($generator);
+
+        $t1 = $provider->getToken('host', 3306, 'user', 'region');
+        $t2 = $provider->getToken('host', 3306, 'user', 'region');
+        $t3 = $provider->getToken('host', 3306, 'user', 'region');
+
+        $this->assertSame($t1, $t2, 'Same credentials should reuse the cached token.');
+        $this->assertNotSame($t1, $t3, 'Rotated credentials must invalidate the cached token.');
+        $this->assertSame(2, $signCount, 'Token must be signed once per distinct credential set.');
+    }
+
+    public function test_cache_key_includes_credential_fingerprint(): void
+    {
+        config(['iam-auth.cache_store' => 'file']);
+        cache()->store('file')->flush();
+
+        $creds = new Credentials('AKIATEST', 'secret', 'session-token-value', time() + 3600);
+        $credentialProvider = fn () => Create::promiseFor($creds);
+
+        $generator = Mockery::mock(AuthTokenGenerator::class);
+        $generator->shouldReceive('createToken')->once()->andReturn('generated-token');
+
+        $provider = Mockery::mock(RdsTokenProvider::class, [$credentialProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $provider->shouldReceive('createAuthTokenGenerator')->andReturn($generator);
+
+        $provider->getToken('host', 3306, 'user', 'region');
+
+        $expectedFingerprint = substr(hash('sha256', 'AKIATEST'.'session-token-value'), 0, 16);
+        $expectedKey = "rds_iam:host:3306:user:region:$expectedFingerprint";
+
+        $this->assertSame('generated-token', cache()->store('file')->get($expectedKey));
+    }
+
+    public function test_apcu_cache_key_includes_credential_fingerprint(): void
+    {
+        $creds = new Credentials('AKIATEST', 'secret', 'session-token-value', time() + 3600);
+        $credentialProvider = fn () => Create::promiseFor($creds);
+
+        $generator = Mockery::mock(AuthTokenGenerator::class);
+        $generator->shouldReceive('createToken')->andReturn('generated-token');
+
+        $provider = Mockery::mock(RdsTokenProvider::class, [$credentialProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $provider->shouldReceive('createAuthTokenGenerator')->andReturn($generator);
+        $provider->shouldReceive('apcuAvailable')->andReturn(true);
+
+        $capturedKey = null;
+        $provider->shouldReceive('apcuEntry')
+            ->once()
+            ->andReturnUsing(function ($key, $gen) use (&$capturedKey) {
+                $capturedKey = $key;
+                return $gen();
+            });
+
+        $provider->getToken('host', 3306, 'user', 'region');
+
+        $expectedFingerprint = substr(hash('sha256', 'AKIATEST'.'session-token-value'), 0, 16);
+        $this->assertSame("rds_iam:host:3306:user:region:$expectedFingerprint", $capturedKey);
+    }
+
+    public function test_apcu_rotated_credentials_use_distinct_cache_keys(): void
+    {
+        $credsA = new Credentials('key-A', 'secret-A', 'token-A', time() + 3600);
+        $credsB = new Credentials('key-B', 'secret-B', 'token-B', time() + 3600);
+        $queue = [$credsA, $credsB];
+        $credentialProvider = function () use (&$queue) {
+            return Create::promiseFor(array_shift($queue));
+        };
+
+        $generator = Mockery::mock(AuthTokenGenerator::class);
+        $generator->shouldReceive('createToken')->andReturn('signed');
+
+        $provider = Mockery::mock(RdsTokenProvider::class, [$credentialProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $provider->shouldReceive('createAuthTokenGenerator')->andReturn($generator);
+        $provider->shouldReceive('apcuAvailable')->andReturn(true);
+
+        $keys = [];
+        $provider->shouldReceive('apcuEntry')
+            ->andReturnUsing(function ($key, $gen) use (&$keys) {
+                $keys[] = $key;
+                return $gen();
+            });
+
+        $provider->getToken('host', 3306, 'user', 'region');
+        $provider->getToken('host', 3306, 'user', 'region');
+
+        $this->assertCount(2, $keys);
+        $this->assertNotSame($keys[0], $keys[1]);
     }
 
     public function test_wraps_token_generation_failure_with_context(): void

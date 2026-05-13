@@ -39,20 +39,30 @@ class AwsCredentialCache
 
     private function resolveViaApcu(callable $provider): CredentialsInterface
     {
-        $cached = apcu_fetch(self::CACHE_KEY, $success);
+        $cached = $this->apcuFetch(self::CACHE_KEY);
 
-        if ($success && $cached instanceof CredentialsInterface && ! $cached->isExpired()) {
+        if ($cached instanceof CredentialsInterface && ! $cached->isExpired()) {
             return $cached;
         }
 
-        $credentials = $provider();
+        $credentials = $this->resolveFreshCredentials($provider);
 
         $ttl = $this->computeTtl($credentials);
         if ($ttl > 0) {
-            apcu_store(self::CACHE_KEY, $credentials, $ttl);
+            $this->apcuStore(self::CACHE_KEY, $credentials, $ttl);
         }
 
         return $credentials;
+    }
+
+    protected function apcuFetch(string $key): mixed
+    {
+        return apcu_fetch($key);
+    }
+
+    protected function apcuStore(string $key, mixed $value, int $ttl): void
+    {
+        apcu_store($key, $value, $ttl);
     }
 
     private function resolveViaLaravelCache(callable $provider, string $store): CredentialsInterface
@@ -64,11 +74,28 @@ class AwsCredentialCache
             return $cached;
         }
 
-        $credentials = $provider();
+        $credentials = $this->resolveFreshCredentials($provider);
 
         $ttl = $this->computeTtl($credentials);
         if ($ttl > 0) {
             $cache->put(self::CACHE_KEY, $credentials, $ttl);
+        }
+
+        return $credentials;
+    }
+
+    /**
+     * Refuses already-expired credentials so the SigV4 signer never emits
+     * a token that RDS will reject server-side.
+     */
+    private function resolveFreshCredentials(callable $provider): CredentialsInterface
+    {
+        $credentials = $provider();
+
+        if ($credentials->isExpired()) {
+            throw new \RuntimeException(
+                'iam-auth: credential provider returned already-expired credentials'
+            );
         }
 
         return $credentials;
@@ -79,13 +106,12 @@ class AwsCredentialCache
         $expiration = $credentials->getExpiration();
 
         if ($expiration === null) {
-            // No expiration: cache for 1 hour (reasonable default for
-            // credentials that don't report expiry)
             return 3600;
         }
 
-        // Leave a 60-second buffer before actual expiration
-        return max(0, $expiration - time() - 60);
+        // 300s buffer covers clock drift, SDK serving latency, and a
+        // worker briefly holding the deserialized object past eviction.
+        return max(0, $expiration - time() - 300);
     }
 
 }
