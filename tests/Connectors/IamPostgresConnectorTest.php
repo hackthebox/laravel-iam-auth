@@ -347,8 +347,7 @@ class IamPostgresConnectorTest extends TestCase
             // expected
         }
 
-        Log::shouldNotHaveReceived('warning',
-            [Mockery::pattern('/rds-auth-rejected/'), Mockery::any()]);
+        Log::shouldNotHaveReceived('warning');
     }
 
     private function mockConnectorThatThrows(PDOException $exception): IamPostgresConnector

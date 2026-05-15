@@ -7,7 +7,6 @@ use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Illuminate\Support\Facades\Log;
-use Mockery;
 use Orchestra\Testbench\TestCase;
 
 class IamAuthServiceProviderTest extends TestCase
@@ -139,8 +138,7 @@ class IamAuthServiceProviderTest extends TestCase
 
         (new IamAuthServiceProvider($this->app))->boot();
 
-        Log::shouldNotHaveReceived('warning',
-            [Mockery::pattern('/credentials_expiry_buffer/'), Mockery::any()]);
+        Log::shouldNotHaveReceived('warning');
     }
 
     public function test_boot_warns_on_non_numeric_credentials_expiry_buffer(): void
@@ -164,8 +162,7 @@ class IamAuthServiceProviderTest extends TestCase
 
         (new IamAuthServiceProvider($this->app))->boot();
 
-        Log::shouldNotHaveReceived('warning',
-            [Mockery::pattern('/credentials_expiry_buffer/'), Mockery::any()]);
+        Log::shouldNotHaveReceived('warning');
     }
 
     public function test_env_non_numeric_credentials_expiry_buffer_reaches_validator(): void
