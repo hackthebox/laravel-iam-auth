@@ -179,7 +179,7 @@ class IamAuthServiceProviderTest extends TestCase
 
             Log::shouldHaveReceived('warning')
                 ->once()
-                ->withArgs(fn (string $message) => str_contains($message, 'must be numeric'));
+                ->withArgs(fn (string $message) => str_contains($message, 'is not numeric'));
         } finally {
             unset($_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER']);
         }

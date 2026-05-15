@@ -74,7 +74,7 @@ class IamAuthServiceProvider extends ServiceProvider
         }
 
         $default = AwsCredentialCache::DEFAULT_CREDENTIALS_EXPIRY_BUFFER;
-        $reason = is_numeric($value) ? 'is negative' : 'must be numeric';
+        $reason = is_numeric($value) ? 'is negative' : 'is not numeric';
 
         Log::warning("iam-auth: credentials_expiry_buffer $reason; falling back to default ({$default}s)", [
             'value' => $value,
