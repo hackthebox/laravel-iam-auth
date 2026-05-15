@@ -69,22 +69,17 @@ class IamAuthServiceProvider extends ServiceProvider
 
     private function validateCredentialsExpiryBuffer(mixed $value): void
     {
-        $default = AwsCredentialCache::DEFAULT_CREDENTIALS_EXPIRY_BUFFER;
-
-        if (! is_numeric($value)) {
-            Log::warning("iam-auth: credentials_expiry_buffer must be numeric; falling back to default ({$default}s)", [
-                'value' => $value,
-                'type' => gettype($value),
-            ]);
-
+        if (AwsCredentialCache::isValidCredentialsExpiryBufferValue($value)) {
             return;
         }
 
-        if ((int) $value < 0) {
-            Log::warning("iam-auth: credentials_expiry_buffer is negative; falling back to default ({$default}s)", [
-                'value' => $value,
-            ]);
-        }
+        $default = AwsCredentialCache::DEFAULT_CREDENTIALS_EXPIRY_BUFFER;
+        $reason = is_numeric($value) ? 'is negative' : 'must be numeric';
+
+        Log::warning("iam-auth: credentials_expiry_buffer $reason; falling back to default ({$default}s)", [
+            'value' => $value,
+            'type' => gettype($value),
+        ]);
     }
 
     private function buildCredentialProvider(): callable

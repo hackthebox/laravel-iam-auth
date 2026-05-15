@@ -133,11 +133,14 @@ class AwsCredentialCache
     {
         $value = config('iam-auth.credentials_expiry_buffer', self::DEFAULT_CREDENTIALS_EXPIRY_BUFFER);
 
-        if (! is_numeric($value) || (int) $value < 0) {
-            return self::DEFAULT_CREDENTIALS_EXPIRY_BUFFER;
-        }
+        return self::isValidCredentialsExpiryBufferValue($value)
+            ? (int) $value
+            : self::DEFAULT_CREDENTIALS_EXPIRY_BUFFER;
+    }
 
-        return (int) $value;
+    public static function isValidCredentialsExpiryBufferValue(mixed $value): bool
+    {
+        return is_numeric($value) && (int) $value >= 0;
     }
 
 }
