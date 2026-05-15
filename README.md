@@ -166,10 +166,14 @@ IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-r
 
 The package guards against a failure mode where a cached IAM token would be reused with AWS credentials whose underlying STS session has rotated (or evicted from the credential cache) since the token was signed. RDS would otherwise accept the SigV4 signature but reject the now-stale session token, surfacing as `Access denied for user '...' (using password: YES)`.
 
-- **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `AwsCredentialCache::resolve()` throws a `RuntimeException` instead of passing them to the SigV4 signer. Callers should retry after a short backoff rather than catching and ignoring.
+- **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `AwsCredentialCache::resolve()` throws a `RuntimeException` instead of passing them to the SigV4 signer, and emits a `Log::warning` under the channel `iam-auth.credentials-expired-on-arrival` for operator visibility. Callers should retry after a short backoff rather than catching and ignoring.
 - **Cached RDS tokens carry a signing-credentials fingerprint.** Each cached entry is `{ token, sig_kid, signed_at }`, where `sig_kid` is a truncated SHA-256 of the `AccessKeyId + SecurityToken` that signed the token. On retrieval, the package compares the entry's `sig_kid` against the current credentials' fingerprint; on mismatch (or any non-conforming legacy entry), the token is regenerated and re-cached. APCu cache-miss atomicity (`apcu_entry`) is preserved.
 
 Both guards are always on and agnostic to session-duration and agent-refresh-cadence configuration. No credential secrets are logged or persisted; only the truncated `sig_kid` and a `signed_at` timestamp accompany the token in the cache.
+
+**Performance note.** Computing the current fingerprint requires resolving credentials on every `getToken()` call, even on a token-cache hit. The cost is dominated by `AwsCredentialCache::resolve()`, which is APCu-backed in production and effectively free. If you disable credential caching (no APCu, no `cache_store`), every DB connection will re-invoke the SDK credential chain — keep credential caching enabled for IAM-auth workloads.
+
+**Concurrency note.** On a `sig_kid` mismatch the package re-signs and overwrites the cache entry. Under concurrent workers this overwrite is not serialized (only the initial `apcu_entry` cache-miss is atomic). During a credential rotation window, N workers may each detect mismatch and redundantly re-sign. SigV4 signing is local HMAC work and all workers produce equivalent tokens, so the result is correct; the cost is bounded by the rotation frequency and is negligible in practice.
 
 Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) is logged at `warning` level under the structured channel `iam-auth.rds-auth-rejected`, carrying the cached credential state at the moment of rejection. Useful as an operational signal for monitoring or alerting on auth failures.
 
@@ -208,6 +212,8 @@ $s3 = new \Aws\S3\S3Client([...]);
 ```
 
 **Cache security note:** Cached credentials are stored in plaintext in the configured backend. Ensure your cache backend is appropriately secured. APCu stores credentials in shared memory within the PHP process, which is not accessible externally.
+
+**Static credentials are not cached.** Credentials without a reported expiration (e.g. static env keys, `~/.aws/credentials` profiles without an `expiration`) cannot be safely cached because the package has no signal for when to evict them. Each request will re-invoke the SDK credential chain. This is intentional: stale long-lived credentials would otherwise outlive their server-side validity and trigger the very failure mode the cache fingerprint guards against. Production workloads on IRSA / Pod Identity / instance profiles get full caching benefits because the SDK reports an expiration.
 
 ## License
 
