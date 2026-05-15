@@ -80,7 +80,7 @@ return [
     |
     */
 
-    'credentials_expiry_buffer' => (int) env('IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER', 10),
+    'credentials_expiry_buffer' => env('IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER', 10),
 
     /*
     |--------------------------------------------------------------------------

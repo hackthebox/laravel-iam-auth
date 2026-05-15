@@ -167,4 +167,24 @@ class IamAuthServiceProviderTest extends TestCase
         Log::shouldNotHaveReceived('warning',
             [Mockery::pattern('/credentials_expiry_buffer/'), Mockery::any()]);
     }
+
+    public function test_env_non_numeric_credentials_expiry_buffer_reaches_validator(): void
+    {
+        $_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER'] = 'oops';
+
+        try {
+            config()->set('iam-auth', require __DIR__.'/../config/iam-auth.php');
+
+            $this->assertSame('oops', config('iam-auth.credentials_expiry_buffer'));
+
+            Log::spy();
+            (new IamAuthServiceProvider($this->app))->boot();
+
+            Log::shouldHaveReceived('warning')
+                ->once()
+                ->withArgs(fn (string $message) => str_contains($message, 'must be numeric'));
+        } finally {
+            unset($_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER']);
+        }
+    }
 }
