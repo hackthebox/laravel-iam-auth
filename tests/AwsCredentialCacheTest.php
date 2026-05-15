@@ -51,6 +51,53 @@ class AwsCredentialCacheTest extends TestCase
         return $cache;
     }
 
+    public function test_peek_returns_apcu_cached_credentials(): void
+    {
+        $cached = new Credentials('peek-key', 'peek-secret', 'peek-token', time() + 3600);
+
+        $cache = $this->cacheWithApcu(fetched: $cached);
+
+        $this->assertSame($cached, $cache->peek());
+    }
+
+    public function test_peek_returns_null_when_apcu_empty(): void
+    {
+        $cache = $this->cacheWithApcu(fetched: null);
+
+        $this->assertNull($cache->peek());
+    }
+
+    public function test_peek_returns_laravel_cached_credentials_when_apcu_unavailable(): void
+    {
+        config(['iam-auth.cache_store' => 'file']);
+        cache()->store('file')->flush();
+
+        $cached = new Credentials('peek-key', 'peek-secret', 'peek-token', time() + 3600);
+        cache()->store('file')->put(AwsCredentialCache::CACHE_KEY, $cached, 3600);
+
+        $cache = $this->cacheWithoutApcu();
+
+        $result = $cache->peek();
+        $this->assertInstanceOf(Credentials::class, $result);
+        $this->assertSame('peek-key', $result->getAccessKeyId());
+    }
+
+    public function test_peek_returns_null_when_no_caching_available(): void
+    {
+        config(['iam-auth.cache_store' => null]);
+
+        $cache = $this->cacheWithoutApcu();
+
+        $this->assertNull($cache->peek());
+    }
+
+    public function test_peek_does_not_invoke_provider(): void
+    {
+        $cache = $this->cacheWithApcu(fetched: null);
+
+        $this->assertNull($cache->peek());
+    }
+
     public function test_caches_credentials_in_laravel_cache_store(): void
     {
         config(['iam-auth.cache_store' => 'file']);

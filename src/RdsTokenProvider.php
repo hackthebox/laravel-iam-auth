@@ -113,34 +113,13 @@ class RdsTokenProvider
         apcu_store($key, $value, $ttl);
     }
 
-    /**
-     * Emit a debug log line describing the current state of the credential
-     * and token caches. Used during the 1045 rejection investigation to
-     * correlate cached-credential health with rejection events.
-     *
-     * Gated on iam-auth.debug to keep the per-DB-connection volume off in
-     * production by default. Never logs secrets; only an AccessKeyId prefix
-     * and the truncated sig_kid (already a one-way hash).
-     */
     private function logTokenAccess(string $cacheKey, string $currentSigKid): void
     {
         if (! config('iam-auth.debug', false)) {
             return;
         }
 
-        $creds = null;
-        $tokenEntry = null;
-
-        if ($this->apcuAvailable()) {
-            $cached = apcu_fetch(AwsCredentialCache::CACHE_KEY, $credFound);
-            if ($credFound && $cached instanceof CredentialsInterface) {
-                $creds = $cached;
-            }
-            $tokenEntry = apcu_fetch($cacheKey, $tokenFound);
-            if (! $tokenFound) {
-                $tokenEntry = null;
-            }
-        }
+        $tokenEntry = $this->peekTokenEntry($cacheKey);
 
         Log::debug('iam-auth.token-access', [
             'cache_key' => $cacheKey,
@@ -150,14 +129,30 @@ class RdsTokenProvider
             'sig_kid_match' => is_array($tokenEntry)
                 && isset($tokenEntry['sig_kid'])
                 && $tokenEntry['sig_kid'] === $currentSigKid,
-            'cred_present' => $creds !== null,
-            'cred_is_expired' => $creds?->isExpired(),
-            'cred_expires_in_s' => $creds && $creds->getExpiration()
-                ? $creds->getExpiration() - time()
-                : null,
-            'cred_access_key_prefix' => $creds?->getAccessKeyId()
-                ? substr($creds->getAccessKeyId(), 0, 8)
-                : null,
+            ...app(AwsCredentialCache::class)->credentialSnapshot(),
         ]);
+    }
+
+    private function peekTokenEntry(string $cacheKey): ?array
+    {
+        if ($this->apcuAvailable()) {
+            $entry = apcu_fetch($cacheKey, $found);
+
+            return $found && is_array($entry) ? $entry : null;
+        }
+
+        $store = config('iam-auth.cache_store');
+        if (! $store) {
+            return null;
+        }
+
+        try {
+            $this->assertSafeCacheStore($store);
+            $entry = $this->resolveCacheStore($store)->get($cacheKey);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($entry) ? $entry : null;
     }
 }

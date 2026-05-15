@@ -2,6 +2,8 @@
 
 namespace Hackthebox\IamAuth\Tests\Connectors;
 
+use Aws\Credentials\Credentials;
+use Hackthebox\IamAuth\AwsCredentialCache;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
@@ -108,6 +110,36 @@ class IamMariaDbConnectorTest extends TestCase
         Log::shouldHaveReceived('warning')
             ->once()
             ->withArgs(fn (string $msg, array $ctx) => $msg === 'iam-auth.rds-auth-rejected');
+    }
+
+    public function test_auth_rejection_warning_includes_credentials_from_laravel_cache(): void
+    {
+        config(['iam-auth.cache_store' => 'file']);
+        cache()->store('file')->flush();
+
+        $creds = new Credentials('AKIAEXAMPLE12345', 'secret', 'session-token', time() + 3600);
+        cache()->store('file')->put(AwsCredentialCache::CACHE_KEY, $creds, 3600);
+
+        $connector = $this->mockConnectorThatThrows($this->makePdoException(
+            'HY000', 1045, "SQLSTATE[HY000] [1045] Access denied for user 'iam_user'@'10.0.4.26'",
+        ));
+
+        Log::spy();
+
+        try {
+            $connector->createConnection('dsn', $this->iamConfig(), []);
+        } catch (PDOException) {
+            // expected
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(function (string $msg, array $ctx) {
+                return $msg === 'iam-auth.rds-auth-rejected'
+                    && $ctx['cred_present'] === true
+                    && $ctx['cred_access_key_prefix'] === 'AKIAEXAM'
+                    && is_int($ctx['cred_expires_in_s']);
+            });
     }
 
     public function test_non_auth_pdo_exception_does_not_log_warning(): void

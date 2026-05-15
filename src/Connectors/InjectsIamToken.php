@@ -2,7 +2,6 @@
 
 namespace Hackthebox\IamAuth\Connectors;
 
-use Aws\Credentials\CredentialsInterface;
 use Hackthebox\IamAuth\AwsCredentialCache;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Support\Facades\Log;
@@ -68,27 +67,11 @@ trait InjectsIamToken
 
     private function logAuthRejection(array $config, string $cacheKey): void
     {
-        $creds = null;
-
-        if (function_exists('apcu_fetch') && apcu_enabled()) {
-            $cached = apcu_fetch(AwsCredentialCache::CACHE_KEY, $credFound);
-            if ($credFound && $cached instanceof CredentialsInterface) {
-                $creds = $cached;
-            }
-        }
-
         Log::warning('iam-auth.rds-auth-rejected', [
             'cache_key' => $cacheKey,
             'username' => $config['username'] ?? null,
             'host' => $config['host'] ?? null,
-            'cred_present' => $creds !== null,
-            'cred_is_expired' => $creds?->isExpired(),
-            'cred_expires_in_s' => $creds && $creds->getExpiration()
-                ? $creds->getExpiration() - time()
-                : null,
-            'cred_access_key_prefix' => $creds?->getAccessKeyId()
-                ? substr($creds->getAccessKeyId(), 0, 8)
-                : null,
+            ...app(AwsCredentialCache::class)->credentialSnapshot(),
         ]);
     }
 

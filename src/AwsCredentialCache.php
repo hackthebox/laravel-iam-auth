@@ -36,6 +36,43 @@ class AwsCredentialCache
         return $this->resolveViaLaravelCache($provider, $store);
     }
 
+    public function credentialSnapshot(): array
+    {
+        $creds = $this->peek();
+        $expiration = $creds?->getExpiration();
+        $accessKey = $creds?->getAccessKeyId();
+
+        return [
+            'cred_present' => $creds !== null,
+            'cred_is_expired' => $creds?->isExpired(),
+            'cred_expires_in_s' => $expiration !== null ? (int) $expiration - time() : null,
+            'cred_access_key_prefix' => $accessKey !== null ? substr($accessKey, 0, 8) : null,
+        ];
+    }
+
+    public function peek(): ?CredentialsInterface
+    {
+        if ($this->apcuAvailable()) {
+            $cached = $this->apcuFetch(self::CACHE_KEY);
+
+            return $cached instanceof CredentialsInterface ? $cached : null;
+        }
+
+        $store = config('iam-auth.cache_store');
+        if (! $store) {
+            return null;
+        }
+
+        try {
+            $this->assertSafeCacheStore($store);
+            $cached = $this->resolveCacheStore($store)->get(self::CACHE_KEY);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $cached instanceof CredentialsInterface ? $cached : null;
+    }
+
     protected function apcuAvailable(): bool
     {
         return function_exists('apcu_fetch') && apcu_enabled();

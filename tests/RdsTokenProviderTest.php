@@ -5,8 +5,10 @@ namespace Hackthebox\IamAuth\Tests;
 use Aws\Credentials\Credentials;
 use Aws\Rds\AuthTokenGenerator;
 use GuzzleHttp\Promise\Create;
+use Hackthebox\IamAuth\AwsCredentialCache;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
+use Illuminate\Support\Facades\Log;
 use Mockery;
 use Orchestra\Testbench\TestCase;
 use RuntimeException;
@@ -361,6 +363,48 @@ class RdsTokenProviderTest extends TestCase
         $this->assertSame('signed-once', $token);
         $this->assertTrue($generatorRanInsideApcuEntry,
             'Sign generator must be invoked via apcuEntry so apcu_entry atomicity is preserved.');
+    }
+
+    public function test_debug_log_reads_credentials_from_laravel_cache_when_apcu_unavailable(): void
+    {
+        config([
+            'iam-auth.debug' => true,
+            'iam-auth.cache_store' => 'file',
+        ]);
+        cache()->store('file')->flush();
+
+        $creds = new Credentials('AKIAEXAMPLE12345', 'secret', 'sess', time() + 3600);
+        cache()->store('file')->put(AwsCredentialCache::CACHE_KEY, $creds, 3600);
+
+        $existingEntry = [
+            'token' => 'cached-token',
+            'sig_kid' => substr(hash('sha256', 'AKIAEXAMPLE12345sess'), 0, 16),
+            'signed_at' => time() - 30,
+        ];
+        cache()->store('file')->put('rds_iam:host:3306:user:region', $existingEntry, 600);
+
+        $credentialProvider = fn () => Create::promiseFor($creds);
+
+        $generator = Mockery::mock(AuthTokenGenerator::class);
+        $generator->shouldReceive('createToken')->andReturn('any-token');
+
+        $provider = Mockery::mock(RdsTokenProvider::class, [$credentialProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+        $provider->shouldReceive('createAuthTokenGenerator')->andReturn($generator);
+
+        Log::spy();
+
+        $provider->getToken('host', 3306, 'user', 'region');
+
+        Log::shouldHaveReceived('debug')
+            ->withArgs(function (string $msg, array $ctx) {
+                return $msg === 'iam-auth.token-access'
+                    && $ctx['cred_present'] === true
+                    && $ctx['cred_access_key_prefix'] === 'AKIAEXAM'
+                    && $ctx['token_cache_hit'] === true
+                    && $ctx['sig_kid_match'] === true;
+            });
     }
 
     public function test_wraps_token_generation_failure_with_context(): void
