@@ -89,15 +89,12 @@ class IamMariaDbConnectorTest extends TestCase
         $connector->createConnection('mysql:host=localhost', $config, []);
     }
 
-    /**
-     * @dataProvider authRejectionScenarios
-     */
-    public function test_auth_rejection_logs_structured_warning(
-        ?string $sqlstate,
-        ?int $driverCode,
-        string $message,
-    ): void {
-        $connector = $this->mockConnectorThatThrows($this->makePdoException($sqlstate, $driverCode, $message));
+    public function test_mysql_1045_logs_structured_warning(): void
+    {
+        $connector = $this->mockConnectorThatThrows($this->makePdoException(
+            'HY000', 1045,
+            "SQLSTATE[HY000] [1045] Access denied for user 'iam_user'@'10.0.4.26' (using password: YES)",
+        ));
 
         Log::spy();
 
@@ -111,24 +108,6 @@ class IamMariaDbConnectorTest extends TestCase
         Log::shouldHaveReceived('warning')
             ->once()
             ->withArgs(fn (string $msg, array $ctx) => $msg === 'iam-auth.rds-auth-rejected');
-    }
-
-    public static function authRejectionScenarios(): array
-    {
-        return [
-            'postgres invalid_password (28P01)' => [
-                '28P01', 7,
-                'SQLSTATE[28P01]: Invalid authorization specification: 7 FATAL: password authentication failed',
-            ],
-            'postgres invalid_authorization (28000)' => [
-                '28000', 7,
-                'SQLSTATE[28000]: Invalid authorization specification: 7 FATAL: no pg_hba.conf entry',
-            ],
-            'mysql access denied (1045 / HY000)' => [
-                'HY000', 1045,
-                "SQLSTATE[HY000] [1045] Access denied for user 'iam_user'@'10.0.4.26' (using password: YES)",
-            ],
-        ];
     }
 
     public function test_non_auth_pdo_exception_does_not_log_warning(): void

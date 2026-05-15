@@ -57,15 +57,13 @@ trait InjectsIamToken
 
     private function isAuthRejection(PDOException $e): bool
     {
-        // PG uses SQLSTATE class 28; mysqlnd reports native 1045 under
-        // SQLSTATE 'HY000'. Message fallback covers drivers that don't
-        // populate errorInfo reliably.
         $sqlstate = (string) ($e->errorInfo[0] ?? '');
-        $message = $e->getMessage();
+        $driverCode = $e->errorInfo[1] ?? null;
 
-        return str_starts_with($sqlstate, '28')
-            || str_contains($message, 'SQLSTATE[28')
-            || str_contains($message, '[1045] Access denied');
+        $isPostgresClass28 = str_starts_with($sqlstate, '28');
+        $isMysqlAccessDenied = $driverCode === 1045;
+
+        return $isPostgresClass28 || $isMysqlAccessDenied;
     }
 
     private function logAuthRejection(array $config, string $cacheKey): void
