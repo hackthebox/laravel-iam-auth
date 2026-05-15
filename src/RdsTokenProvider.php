@@ -136,7 +136,7 @@ class RdsTokenProvider
             if ($credFound && $cached instanceof CredentialsInterface) {
                 $creds = $cached;
             }
-            $tokenEntry = apcu_fetch($cacheKey, $tokenFound) ?: null;
+            $tokenEntry = apcu_fetch($cacheKey, $tokenFound);
             if (! $tokenFound) {
                 $tokenEntry = null;
             }
