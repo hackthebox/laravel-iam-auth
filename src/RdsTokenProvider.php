@@ -21,12 +21,14 @@ class RdsTokenProvider
     {
         $cacheKey = "rds_iam:$host:$port:$username:$region";
         $ttl = config('iam-auth.cache_ttl', 600);
-        $sigKid = $this->currentSigKid();
+
+        $credentials = ($this->credentialProvider)()->wait();
+        $sigKid = $this->credentialFingerprint($credentials);
 
         $this->logTokenAccess($cacheKey, $sigKid);
 
         $sign = fn (): array => [
-            'token' => $this->generateToken($host, $port, $username, $region),
+            'token' => $this->generateToken($credentials, $host, $port, $username, $region),
             'sig_kid' => $sigKid,
             'signed_at' => time(),
         ];
@@ -66,11 +68,6 @@ class RdsTokenProvider
             && $entry['sig_kid'] === $sigKid;
     }
 
-    private function currentSigKid(): string
-    {
-        return $this->credentialFingerprint(($this->credentialProvider)()->wait());
-    }
-
     private function credentialFingerprint(CredentialsInterface $credentials): string
     {
         $material = $credentials->getAccessKeyId().($credentials->getSecurityToken() ?? '');
@@ -78,10 +75,10 @@ class RdsTokenProvider
         return substr(hash('sha256', $material), 0, 16);
     }
 
-    private function generateToken(string $host, int $port, string $username, string $region): string
+    private function generateToken(CredentialsInterface $credentials, string $host, int $port, string $username, string $region): string
     {
         try {
-            $generator = $this->createAuthTokenGenerator();
+            $generator = $this->createAuthTokenGenerator($credentials);
 
             return $generator->createToken("$host:$port", $region, $username);
         } catch (Throwable $e) {
@@ -93,9 +90,9 @@ class RdsTokenProvider
         }
     }
 
-    protected function createAuthTokenGenerator(): AuthTokenGenerator
+    protected function createAuthTokenGenerator(CredentialsInterface $credentials): AuthTokenGenerator
     {
-        return new AuthTokenGenerator($this->credentialProvider);
+        return new AuthTokenGenerator(fn () => $credentials);
     }
 
     protected function apcuAvailable(): bool

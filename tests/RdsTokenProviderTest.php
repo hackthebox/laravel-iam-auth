@@ -3,6 +3,7 @@
 namespace Hackthebox\IamAuth\Tests;
 
 use Aws\Credentials\Credentials;
+use Aws\Credentials\CredentialsInterface;
 use Aws\Rds\AuthTokenGenerator;
 use GuzzleHttp\Promise\Create;
 use Hackthebox\IamAuth\AwsCredentialCache;
@@ -363,6 +364,37 @@ class RdsTokenProviderTest extends TestCase
         $this->assertSame('signed-once', $token);
         $this->assertTrue($generatorRanInsideApcuEntry,
             'Sign generator must be invoked via apcuEntry so apcu_entry atomicity is preserved.');
+    }
+
+    public function test_credentials_resolved_once_per_get_token_miss(): void
+    {
+        $creds = new Credentials('K', 's', 'sess', time() + 3600);
+        $callCount = 0;
+        $credentialProvider = function () use (&$callCount, $creds) {
+            $callCount++;
+            return Create::promiseFor($creds);
+        };
+
+        $generator = Mockery::mock(AuthTokenGenerator::class);
+        $generator->shouldReceive('createToken')->andReturn('signed-token');
+
+        $provider = Mockery::mock(RdsTokenProvider::class, [$credentialProvider])
+            ->makePartial()
+            ->shouldAllowMockingProtectedMethods();
+
+        $passedToFactory = null;
+        $provider->shouldReceive('createAuthTokenGenerator')
+            ->andReturnUsing(function ($creds = null) use ($generator, &$passedToFactory) {
+                $passedToFactory = $creds;
+                return $generator;
+            });
+
+        $provider->getToken('host', 3306, 'user', 'region');
+
+        $this->assertSame(1, $callCount,
+            'Credential provider must be invoked exactly once per cache miss.');
+        $this->assertInstanceOf(CredentialsInterface::class, $passedToFactory,
+            'createAuthTokenGenerator must receive the already-resolved credentials so the signer cannot re-resolve.');
     }
 
     public function test_debug_log_reads_credentials_from_laravel_cache_when_apcu_unavailable(): void
