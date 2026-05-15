@@ -3,6 +3,8 @@
 namespace Hackthebox\IamAuth;
 
 use Aws\Credentials\CredentialsInterface;
+use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 class AwsCredentialCache
 {
@@ -95,12 +97,25 @@ class AwsCredentialCache
         $credentials = $provider();
 
         if ($credentials->isExpired()) {
-            throw new \RuntimeException(
+            $this->logExpiredOnArrival($credentials);
+
+            throw new RuntimeException(
                 'iam-auth: credential provider returned already-expired credentials'
             );
         }
 
         return $credentials;
+    }
+
+    private function logExpiredOnArrival(CredentialsInterface $credentials): void
+    {
+        $expiration = $credentials->getExpiration();
+        $accessKey = $credentials->getAccessKeyId();
+
+        Log::warning('iam-auth.credentials-expired-on-arrival', [
+            'cred_access_key_prefix' => $accessKey ? substr($accessKey, 0, 8) : null,
+            'expired_for_s' => $expiration !== null ? time() - (int) $expiration : null,
+        ]);
     }
 
     private function computeTtl(CredentialsInterface $credentials): int

@@ -5,8 +5,10 @@ namespace Hackthebox\IamAuth\Tests;
 use Aws\Credentials\Credentials;
 use Hackthebox\IamAuth\AwsCredentialCache;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
+use Illuminate\Support\Facades\Log;
 use Mockery;
 use Orchestra\Testbench\TestCase;
+use RuntimeException;
 
 class AwsCredentialCacheTest extends TestCase
 {
@@ -97,7 +99,7 @@ class AwsCredentialCacheTest extends TestCase
 
         $cache = $this->cacheWithoutApcu();
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("cannot use the 'db_cache' cache store");
 
         $cache->resolve(fn () => new Credentials('a', 'b'));
@@ -121,7 +123,7 @@ class AwsCredentialCacheTest extends TestCase
 
         $cache = $this->cacheWithoutApcu();
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("IAM auth cache store 'nonexistent' is not configured");
 
         $cache->resolve(fn () => new Credentials('a', 'b'));
@@ -136,7 +138,7 @@ class AwsCredentialCacheTest extends TestCase
 
         $cache = $this->cacheWithoutApcu();
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('iam-auth: credential provider returned already-expired credentials');
 
         $cache->resolve($provider);
@@ -149,7 +151,7 @@ class AwsCredentialCacheTest extends TestCase
         $cache = $this->cacheWithApcu(fetched: null);
         $cache->shouldNotReceive('apcuStore');
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('iam-auth: credential provider returned already-expired credentials');
 
         $cache->resolve($provider);
@@ -314,6 +316,52 @@ class AwsCredentialCacheTest extends TestCase
         $this->assertLessThanOrEqual(3590, $capturedTtl);
     }
 
+    public function test_logs_warning_when_expired_on_arrival_via_apcu(): void
+    {
+        $provider = fn () => new Credentials('AKIAEXAMPLE12345', 'secret', 'token', time() - 5);
+
+        $cache = $this->cacheWithApcu(fetched: null);
+
+        Log::spy();
+
+        try {
+            $cache->resolve($provider);
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(function (string $msg, array $ctx) {
+                return $msg === 'iam-auth.credentials-expired-on-arrival'
+                    && $ctx['cred_access_key_prefix'] === 'AKIAEXAM'
+                    && is_int($ctx['expired_for_s'])
+                    && $ctx['expired_for_s'] >= 5;
+            });
+    }
+
+    public function test_logs_warning_when_expired_on_arrival_via_laravel_cache(): void
+    {
+        config(['iam-auth.cache_store' => 'file']);
+        cache()->store('file')->flush();
+
+        $provider = fn () => new Credentials('AKIAEXAMPLE12345', 'secret', 'token', time() - 5);
+
+        $cache = $this->cacheWithoutApcu();
+
+        Log::spy();
+
+        try {
+            $cache->resolve($provider);
+        } catch (RuntimeException) {
+            // expected
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(fn (string $msg) => $msg === 'iam-auth.credentials-expired-on-arrival');
+    }
+
     public function test_laravel_cache_does_not_persist_expired_on_arrival_credentials(): void
     {
         config(['iam-auth.cache_store' => 'file']);
@@ -325,7 +373,7 @@ class AwsCredentialCacheTest extends TestCase
 
         try {
             $cache->resolve($provider);
-        } catch (\RuntimeException) {
+        } catch (RuntimeException) {
             // expected
         }
 
