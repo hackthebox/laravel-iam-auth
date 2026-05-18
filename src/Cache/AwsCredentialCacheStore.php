@@ -11,6 +11,8 @@ class AwsCredentialCacheStore implements CacheInterface
 {
     use ValidatesCacheStore;
 
+    public const CACHE_KEY = 'aws_cached_iam_auth_credentials';
+
     public function get($key)
     {
         if ($this->apcuAvailable()) {
@@ -85,6 +87,46 @@ class AwsCredentialCacheStore implements CacheInterface
         } catch (\Throwable) {
             // Best-effort cleanup. Sibling workers will retry on their own auth rejections.
         }
+    }
+
+    public function peek(string $key): ?CredentialsInterface
+    {
+        if ($this->apcuAvailable()) {
+            $value = $this->apcuFetch($key);
+            return $value instanceof CredentialsInterface ? $value : null;
+        }
+
+        $store = $this->cacheStoreName();
+        if (!$store) {
+            return null;
+        }
+
+        $value = $this->readStoreOrNullOnAnyFailure($store, $key);
+        return $value instanceof CredentialsInterface ? $value : null;
+    }
+
+    private function readStoreOrNullOnAnyFailure(string $store, string $key): mixed
+    {
+        try {
+            $this->assertSafeCacheStore($store);
+            return $this->resolveCacheStore($store)->get($key);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    public function credentialSnapshot(): array
+    {
+        $creds = $this->peek(self::CACHE_KEY);
+        $expiration = $creds?->getExpiration();
+        $accessKey = $creds?->getAccessKeyId();
+
+        return [
+            'cred_present' => $creds !== null,
+            'cred_is_expired' => $creds?->isExpired(),
+            'cred_expires_in_s' => $expiration !== null ? ((int) $expiration) - time() : null,
+            'cred_access_key_prefix' => $accessKey !== null ? substr($accessKey, 0, 8) : null,
+        ];
     }
 
     protected function apcuAvailable(): bool

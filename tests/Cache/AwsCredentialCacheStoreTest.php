@@ -135,6 +135,75 @@ class AwsCredentialCacheStoreTest extends TestCase
         }
     }
 
+    public function test_peek_returns_stored_credentials_without_mutation(): void
+    {
+        $store = $this->makeStore(apcuAvailable: true);
+        $creds = new \Aws\Credentials\Credentials('AKIAPEEK', 'secret', null, time() + 3600);
+        $store->set('test_key', $creds, 3600);
+
+        $peeked = $store->peek('test_key');
+
+        $this->assertSame('AKIAPEEK', $peeked->getAccessKeyId());
+        $this->assertSame('AKIAPEEK', $store->get('test_key')->getAccessKeyId());
+    }
+
+    public function test_credential_snapshot_returns_present_state(): void
+    {
+        $store = $this->makeStore(apcuAvailable: true);
+        $creds = new \Aws\Credentials\Credentials('AKIASNAP12345', 'secret', null, time() + 1234);
+        $store->set(AwsCredentialCacheStore::CACHE_KEY, $creds, 1234);
+
+        $snapshot = $store->credentialSnapshot();
+
+        $this->assertTrue($snapshot['cred_present']);
+        $this->assertFalse($snapshot['cred_is_expired']);
+        $this->assertEqualsWithDelta(1234, $snapshot['cred_expires_in_s'], 2);
+        $this->assertSame('AKIASNAP', $snapshot['cred_access_key_prefix']);
+    }
+
+    public function test_credential_snapshot_when_empty(): void
+    {
+        $store = $this->makeStore(apcuAvailable: true);
+
+        $snapshot = $store->credentialSnapshot();
+
+        $this->assertFalse($snapshot['cred_present']);
+        $this->assertNull($snapshot['cred_is_expired']);
+        $this->assertNull($snapshot['cred_expires_in_s']);
+        $this->assertNull($snapshot['cred_access_key_prefix']);
+    }
+
+    public function test_peek_returns_credentials_from_laravel_cache_when_apcu_unavailable(): void
+    {
+        $creds = new \Aws\Credentials\Credentials('AKIAPEEKL', 'secret', null, time() + 3600);
+
+        $repo = $this->createMock(\Illuminate\Contracts\Cache\Repository::class);
+        $repo->method('get')->with('test_key')->willReturn($creds);
+
+        $factory = $this->createMock(\Illuminate\Contracts\Cache\Factory::class);
+        $factory->method('store')->with('redis')->willReturn($repo);
+
+        $store = $this->makeStoreWithFactory(apcuAvailable: false, cacheStore: 'redis', factory: $factory);
+
+        $peeked = $store->peek('test_key');
+
+        $this->assertInstanceOf(\Aws\Credentials\CredentialsInterface::class, $peeked);
+        $this->assertSame('AKIAPEEKL', $peeked->getAccessKeyId());
+    }
+
+    public function test_peek_returns_null_when_laravel_cache_throws(): void
+    {
+        $repo = $this->createMock(\Illuminate\Contracts\Cache\Repository::class);
+        $repo->method('get')->willThrowException(new \RuntimeException('redis down'));
+
+        $factory = $this->createMock(\Illuminate\Contracts\Cache\Factory::class);
+        $factory->method('store')->with('redis')->willReturn($repo);
+
+        $store = $this->makeStoreWithFactory(apcuAvailable: false, cacheStore: 'redis', factory: $factory);
+
+        $this->assertNull($store->peek('test_key'));
+    }
+
     private function makeStoreWithFactory(bool $apcuAvailable, ?string $cacheStore, ?\Illuminate\Contracts\Cache\Factory $factory): AwsCredentialCacheStore
     {
         return new class($apcuAvailable, $cacheStore, $factory) extends AwsCredentialCacheStore {
