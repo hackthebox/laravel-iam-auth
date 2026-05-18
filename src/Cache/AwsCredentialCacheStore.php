@@ -3,7 +3,9 @@
 namespace Hackthebox\IamAuth\Cache;
 
 use Aws\CacheInterface;
+use Aws\Credentials\CredentialsInterface;
 use Hackthebox\IamAuth\ValidatesCacheStore;
+use Illuminate\Support\Facades\Log;
 
 class AwsCredentialCacheStore implements CacheInterface
 {
@@ -32,6 +34,13 @@ class AwsCredentialCacheStore implements CacheInterface
 
     public function set($key, $value, $ttl = 0): void
     {
+        if ($value instanceof CredentialsInterface && $value->isExpired()) {
+            $this->logExpiredOnArrival($value);
+            throw new \RuntimeException(
+                'iam-auth: credential provider returned already-expired credentials'
+            );
+        }
+
         if ($this->apcuAvailable()) {
             $this->apcuStore($key, $value, $ttl);
             return;
@@ -44,6 +53,17 @@ class AwsCredentialCacheStore implements CacheInterface
 
         $this->assertSafeCacheStore($store);
         $this->resolveCacheStore($store)->put($key, $value, $ttl);
+    }
+
+    private function logExpiredOnArrival(CredentialsInterface $credentials): void
+    {
+        $expiration = $credentials->getExpiration();
+        $accessKey = $credentials->getAccessKeyId();
+
+        Log::warning('iam-auth.credentials-expired-on-arrival', [
+            'cred_access_key_prefix' => $accessKey ? substr($accessKey, 0, 8) : null,
+            'expired_for_s' => $expiration !== null ? time() - ((int) $expiration) : null,
+        ]);
     }
 
     public function remove($key): void

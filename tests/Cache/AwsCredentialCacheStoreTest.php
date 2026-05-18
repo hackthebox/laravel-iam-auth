@@ -113,6 +113,28 @@ class AwsCredentialCacheStoreTest extends TestCase
         $store->set('test_key', $creds, 3600);
     }
 
+    public function test_set_with_expired_credentials_logs_warning_and_throws(): void
+    {
+        \Illuminate\Support\Facades\Log::spy();
+
+        $store = $this->makeStore(apcuAvailable: true);
+        $expired = new \Aws\Credentials\Credentials('AKIAEXPIRED', 'secret', null, time() - 60);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('iam-auth: credential provider returned already-expired credentials');
+
+        try {
+            $store->set('test_key', $expired, 3600);
+        } finally {
+            \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
+                ->with('iam-auth.credentials-expired-on-arrival', \Mockery::on(function ($payload) {
+                    return $payload['cred_access_key_prefix'] === 'AKIAEXPI'
+                        && $payload['expired_for_s'] >= 1;
+                }))
+                ->once();
+        }
+    }
+
     private function makeStoreWithFactory(bool $apcuAvailable, ?string $cacheStore, ?\Illuminate\Contracts\Cache\Factory $factory): AwsCredentialCacheStore
     {
         return new class($apcuAvailable, $cacheStore, $factory) extends AwsCredentialCacheStore {
