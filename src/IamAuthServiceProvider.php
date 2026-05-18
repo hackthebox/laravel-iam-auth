@@ -46,7 +46,8 @@ class IamAuthServiceProvider extends ServiceProvider
         });
 
         $this->app->bind(RdsTokenProvider::class, function ($app) {
-            return new RdsTokenProvider($app->make('iam-auth.credential-provider'));
+            $provider = $app->make('iam-auth.credential-provider');
+            return new RdsTokenProvider($provider, $provider);
         });
 
         $this->app->bind('db.connector.mysql', IamMySqlConnector::class);
