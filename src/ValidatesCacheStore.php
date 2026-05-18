@@ -9,7 +9,7 @@ trait ValidatesCacheStore
 {
     private static array $unsafeCacheDrivers = ['database', 'dynamodb'];
 
-    private function assertSafeCacheStore(string $store): void
+    protected function assertSafeCacheStore(string $store): void
     {
         $driver = config("cache.stores.$store.driver");
 
@@ -23,7 +23,7 @@ trait ValidatesCacheStore
         }
     }
 
-    private function resolveCacheStore(string $store): Repository
+    protected function resolveCacheStore(string $store): Repository
     {
         try {
             return cache()->store($store);

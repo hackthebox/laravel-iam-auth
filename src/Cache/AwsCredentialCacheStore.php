@@ -16,7 +16,18 @@ class AwsCredentialCacheStore implements CacheInterface
             return $value === false ? null : $value;
         }
 
-        return null;
+        $store = $this->cacheStoreName();
+        if (!$store) {
+            return null;
+        }
+
+        $this->assertSafeCacheStore($store);
+
+        try {
+            return $this->resolveCacheStore($store)->get($key);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     public function set($key, $value, $ttl = 0): void
@@ -25,6 +36,14 @@ class AwsCredentialCacheStore implements CacheInterface
             $this->apcuStore($key, $value, $ttl);
             return;
         }
+
+        $store = $this->cacheStoreName();
+        if (!$store) {
+            return;
+        }
+
+        $this->assertSafeCacheStore($store);
+        $this->resolveCacheStore($store)->put($key, $value, $ttl);
     }
 
     public function remove($key): void
@@ -32,6 +51,19 @@ class AwsCredentialCacheStore implements CacheInterface
         if ($this->apcuAvailable()) {
             $this->apcuDelete($key);
             return;
+        }
+
+        $store = $this->cacheStoreName();
+        if (!$store) {
+            return;
+        }
+
+        $this->assertSafeCacheStore($store);
+
+        try {
+            $this->resolveCacheStore($store)->forget($key);
+        } catch (\Throwable) {
+            // Best-effort cleanup. Sibling workers will retry on their own auth rejections.
         }
     }
 
