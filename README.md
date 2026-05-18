@@ -177,6 +177,8 @@ Both guards are always on and agnostic to session-duration and agent-refresh-cad
 
 Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) is logged at `warning` level under the structured channel `iam-auth.rds-auth-rejected`, carrying the cached credential state at the moment of rejection. Useful as an operational signal for monitoring or alerting on auth failures.
 
+The credential snapshot reflects the cache state **at the moment the warning fires**, not the exact credentials used to sign the rejected token. In practice these are the same (the window between signing and rejection is small and the credentials cache rarely rotates within it), but on a busy multi-worker pod a concurrent refresh between signing and rejection can produce a snapshot of post-rotation credentials.
+
 Operators who observe clock drift or want more aggressive credential refresh (e.g. for CI smoke tests against rotating credentials) can tune `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` (default `10` seconds). Negative or non-numeric values fall back to the default and emit a boot-time warning.
 
 ## Debugging
@@ -192,6 +194,8 @@ Set `IAM_AUTH_DEBUG=true` in your environment to enable verbose per-`getToken` l
 The `iam-auth.rds-auth-rejected` warning is unconditional and fires regardless of `IAM_AUTH_DEBUG`; it carries the same credential snapshot.
 
 This log volume is too high for steady-state production. Enable for short investigation soaks only. No credential secrets are ever logged.
+
+Note: under `IAM_AUTH_DEBUG=true` each `getToken()` performs two cache reads — one to assemble the debug snapshot and one for the actual lookup. Negligible at investigation cadence; another reason not to leave debug on in steady state.
 
 ## AWS Credential Caching
 
