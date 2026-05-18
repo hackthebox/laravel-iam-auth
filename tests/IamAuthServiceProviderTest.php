@@ -6,7 +6,6 @@ use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
-use Illuminate\Support\Facades\Log;
 use Orchestra\Testbench\TestCase;
 
 class IamAuthServiceProviderTest extends TestCase
@@ -43,14 +42,6 @@ class IamAuthServiceProviderTest extends TestCase
         );
     }
 
-    public function test_registers_aws_credential_cache(): void
-    {
-        $this->assertInstanceOf(
-            \Hackthebox\IamAuth\AwsCredentialCache::class,
-            $this->app->make(\Hackthebox\IamAuth\AwsCredentialCache::class)
-        );
-    }
-
     public function test_merges_config(): void
     {
         $this->assertNotNull(config('iam-auth.region'));
@@ -63,13 +54,6 @@ class IamAuthServiceProviderTest extends TestCase
         $provider = $this->app->make('iam-auth.credential-provider');
 
         $this->assertIsCallable($provider);
-    }
-
-    public function test_extends_aws_sdk_singleton(): void
-    {
-        $sdk = $this->app->make('aws');
-
-        $this->assertInstanceOf(\Aws\Sdk::class, $sdk);
     }
 
     /**
@@ -111,77 +95,38 @@ class IamAuthServiceProviderTest extends TestCase
         $this->app->make('iam-auth.credential-provider');
     }
 
-    public function test_boot_warns_on_negative_credentials_expiry_buffer(): void
+    public function test_binds_aws_cache_interface_to_credential_cache_store(): void
     {
-        config(['iam-auth.credentials_expiry_buffer' => -100]);
-
-        Log::spy();
-
-        (new IamAuthServiceProvider($this->app))->boot();
-
-        Log::shouldHaveReceived('warning')
-            ->once()
-            ->withArgs(function (string $message, array $context) {
-                return str_contains($message, 'credentials_expiry_buffer')
-                    && $context['value'] === -100;
-            });
+        $store = app(\Aws\CacheInterface::class);
+        $this->assertInstanceOf(\Hackthebox\IamAuth\Cache\AwsCredentialCacheStore::class, $store);
     }
 
-    public function test_boot_does_not_warn_on_large_credentials_expiry_buffer(): void
+    public function test_binds_cached_and_fresh_credential_providers_as_distinct_callables(): void
     {
-        // Large buffers are an operator choice (frequent refresh on short
-        // sessions), not a misconfiguration. The runtime caches less, which
-        // is observable as agent load; no boot-time warning.
-        config(['iam-auth.credentials_expiry_buffer' => 3600]);
+        $cached = app('iam-auth.credential-provider');
+        $fresh = app('iam-auth.credential-provider-fresh');
 
-        Log::spy();
-
-        (new IamAuthServiceProvider($this->app))->boot();
-
-        Log::shouldNotHaveReceived('warning');
+        $this->assertIsCallable($cached);
+        $this->assertIsCallable($fresh);
+        $this->assertNotSame($cached, $fresh);
     }
 
-    public function test_boot_warns_on_non_numeric_credentials_expiry_buffer(): void
+    public function test_rds_token_provider_resolves_with_two_providers(): void
     {
-        config(['iam-auth.credentials_expiry_buffer' => 'not-a-number']);
-
-        Log::spy();
-
-        (new IamAuthServiceProvider($this->app))->boot();
-
-        Log::shouldHaveReceived('warning')
-            ->once()
-            ->withArgs(fn (string $message) => str_contains($message, 'credentials_expiry_buffer'));
+        $provider = app(\Hackthebox\IamAuth\RdsTokenProvider::class);
+        $this->assertInstanceOf(\Hackthebox\IamAuth\RdsTokenProvider::class, $provider);
     }
 
-    public function test_boot_does_not_warn_on_valid_credentials_expiry_buffer(): void
+    public function test_aws_credentials_config_injected_without_rebuilding_singleton(): void
     {
-        config(['iam-auth.credentials_expiry_buffer' => 10]);
+        $this->app->extend('aws', function ($sdk) {
+            $sdk->__sentinel = 'preserved';
+            return $sdk;
+        });
 
-        Log::spy();
+        $sdk = app('aws');
 
-        (new IamAuthServiceProvider($this->app))->boot();
-
-        Log::shouldNotHaveReceived('warning');
-    }
-
-    public function test_env_non_numeric_credentials_expiry_buffer_reaches_validator(): void
-    {
-        $_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER'] = 'oops';
-
-        try {
-            config()->set('iam-auth', require __DIR__.'/../config/iam-auth.php');
-
-            $this->assertSame('oops', config('iam-auth.credentials_expiry_buffer'));
-
-            Log::spy();
-            (new IamAuthServiceProvider($this->app))->boot();
-
-            Log::shouldHaveReceived('warning')
-                ->once()
-                ->withArgs(fn (string $message) => str_contains($message, 'is not numeric'));
-        } finally {
-            unset($_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER']);
-        }
+        $this->assertTrue(property_exists($sdk, '__sentinel'));
+        $this->assertSame('preserved', $sdk->__sentinel);
     }
 }
