@@ -17,9 +17,14 @@ class RdsTokenProvider
     {
     }
 
+    public static function cacheKey(string $host, int $port, string $username, string $region): string
+    {
+        return "rds_iam:$host:$port:$username:$region";
+    }
+
     public function getToken(string $host, int $port, string $username, string $region): string
     {
-        $cacheKey = "rds_iam:$host:$port:$username:$region";
+        $cacheKey = self::cacheKey($host, $port, $username, $region);
         $ttl = config('iam-auth.cache_ttl', 600);
 
         $credentials = ($this->credentialProvider)()->wait();
@@ -146,7 +151,7 @@ class RdsTokenProvider
         try {
             $this->assertSafeCacheStore($store);
             $entry = $this->resolveCacheStore($store)->get($cacheKey);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return null;
         }
 

@@ -45,7 +45,7 @@ class AwsCredentialCache
         return [
             'cred_present' => $creds !== null,
             'cred_is_expired' => $creds?->isExpired(),
-            'cred_expires_in_s' => $expiration !== null ? (int) $expiration - time() : null,
+            'cred_expires_in_s' => $expiration !== null ? ((int) $expiration) - time() : null,
             'cred_access_key_prefix' => $accessKey !== null ? substr($accessKey, 0, 8) : null,
         ];
     }
@@ -151,7 +151,7 @@ class AwsCredentialCache
 
         Log::warning('iam-auth.credentials-expired-on-arrival', [
             'cred_access_key_prefix' => $accessKey ? substr($accessKey, 0, 8) : null,
-            'expired_for_s' => $expiration !== null ? time() - (int) $expiration : null,
+            'expired_for_s' => $expiration !== null ? time() - ((int) $expiration) : null,
         ]);
     }
 

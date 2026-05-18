@@ -33,7 +33,7 @@ trait InjectsIamToken
             : $this->getDefaultPort();
 
         $region = $config['region'] ?? config('iam-auth.region');
-        $cacheKey = "rds_iam:{$config['host']}:$port:{$config['username']}:$region";
+        $cacheKey = RdsTokenProvider::cacheKey($config['host'], $port, $config['username'], $region);
 
         $config['password'] = $this->getTokenProvider()->getToken(
             $config['host'],
