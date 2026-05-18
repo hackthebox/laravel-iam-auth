@@ -15,6 +15,10 @@ The package does **not** introduce a new database driver. Laravel's `MySqlConnec
 
 The package also extends the aws/aws-sdk-php-laravel SDK singleton to cache resolved AWS credentials across PHP-FPM requests, benefiting all AWS SDK calls in your application.
 
+## Driver Support
+
+Supports MySQL, MariaDB, and PostgreSQL. All three drivers share the same connector trait (`InjectsIamToken`), so the auth-token signing, cache-defense, and auth-rejection-detection behavior is identical across them.
+
 ## Requirements
 
 - PHP >= 8.2
@@ -109,6 +113,8 @@ The package config (`config/iam-auth.php`):
 | `credential_provider` | `default` | AWS credential provider for all SDK operations (S3, SQS, RDS, etc.). Override with `IAM_AUTH_CREDENTIAL_PROVIDER` env. Supported: `default`, `environment`, `ecs`, `web_identity`, `instance_profile`, `sso`, `ini`. |
 | `cache_store` | `null` | Laravel cache store for caching RDS tokens and AWS credentials when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. Override with `IAM_AUTH_CACHE_STORE` env. |
 | `cache_ttl` | `600` (10 min) | RDS token cache TTL in seconds. Override with `IAM_AUTH_CACHE_TTL` env. |
+| `credentials_expiry_buffer` | `10` (seconds) | Eviction buffer subtracted from AWS SDK credentials' reported expiration. Override with `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` env. Negative or non-numeric values fall back to the default and log a boot-time warning. |
+| `debug` | `false` | When `true`, emits verbose debug logging of credential and token cache state on every `getToken` call. High log volume; intended for short investigation soaks only. Override with `IAM_AUTH_DEBUG` env. |
 | `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Override with `IAM_AUTH_PGSQL_SSLMODE` env. |
 | `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `IAM_AUTH_SSL_CA_PATH` env. |
 
@@ -156,6 +162,41 @@ IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-r
 
 **Bundled CA certificate:** The package includes the AWS RDS global CA bundle. This certificate bundle may become stale over time. If you encounter SSL verification errors, download the latest bundle from AWS and set `IAM_AUTH_SSL_CA_PATH` to point to it.
 
+## Defensive Behavior
+
+The package guards against a failure mode where a cached IAM token would be reused with AWS credentials whose underlying STS session has rotated (or evicted from the credential cache) since the token was signed. RDS would otherwise accept the SigV4 signature but reject the now-stale session token, surfacing as `Access denied for user '...' (using password: YES)`.
+
+- **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `AwsCredentialCache::resolve()` throws a `RuntimeException` instead of passing them to the SigV4 signer, and emits a `Log::warning` under the channel `iam-auth.credentials-expired-on-arrival` for operator visibility. Callers should retry after a short backoff rather than catching and ignoring.
+- **Cached RDS tokens carry a signing-credentials fingerprint.** Each cached entry is `{ token, sig_kid, signed_at }`, where `sig_kid` is a truncated SHA-256 of the `AccessKeyId + SecurityToken` that signed the token. On retrieval, the package compares the entry's `sig_kid` against the current credentials' fingerprint; on mismatch (or any non-conforming legacy entry), the token is regenerated and re-cached. APCu cache-miss atomicity (`apcu_entry`) is preserved.
+
+Both guards are always on and agnostic to session-duration and agent-refresh-cadence configuration. No credential secrets are logged or persisted; only the truncated `sig_kid` and a `signed_at` timestamp accompany the token in the cache.
+
+**Performance note.** Computing the current fingerprint requires resolving credentials on every `getToken()` call, even on a token-cache hit. The cost is dominated by `AwsCredentialCache::resolve()`, which is APCu-backed in production and effectively free. If you disable credential caching (no APCu, no `cache_store`), every DB connection will re-invoke the SDK credential chain — keep credential caching enabled for IAM-auth workloads.
+
+**Concurrency note.** On a `sig_kid` mismatch the package re-signs and overwrites the cache entry. Under concurrent workers this overwrite is not serialized (only the initial `apcu_entry` cache-miss is atomic). During a credential rotation window, N workers may each detect mismatch and redundantly re-sign. SigV4 signing is local HMAC work and all workers produce equivalent tokens, so the result is correct; the cost is bounded by the rotation frequency and is negligible in practice.
+
+Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) is logged at `warning` level under the structured channel `iam-auth.rds-auth-rejected`, carrying the cached credential state at the moment of rejection. Useful as an operational signal for monitoring or alerting on auth failures.
+
+The credential snapshot reflects the cache state **at the moment the warning fires**, not the exact credentials used to sign the rejected token. In practice these are the same (the window between signing and rejection is small and the credentials cache rarely rotates within it), but on a busy multi-worker pod a concurrent refresh between signing and rejection can produce a snapshot of post-rotation credentials.
+
+Operators who observe clock drift or want more aggressive credential refresh (e.g. for CI smoke tests against rotating credentials) can tune `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` (default `10` seconds). Negative or non-numeric values fall back to the default and emit a boot-time warning.
+
+## Debugging
+
+Set `IAM_AUTH_DEBUG=true` in your environment to enable verbose per-`getToken` logging. The package emits an `iam-auth.token-access` debug line on every call with the credential and token cache state at that moment:
+
+- `current_sig_kid` — fingerprint of the credentials about to sign the token.
+- `cached_sig_kid` — fingerprint stored in the cached entry (if any).
+- `sig_kid_match` — whether the cached entry matches the current credentials.
+- `cred_is_expired`, `cred_expires_in_s` — client-side credential lifetime.
+- `cred_access_key_prefix` — first 8 characters of the AccessKeyId (never the full credential).
+
+The `iam-auth.rds-auth-rejected` warning is unconditional and fires regardless of `IAM_AUTH_DEBUG`; it carries the same credential snapshot.
+
+This log volume is too high for steady-state production. Enable for short investigation soaks only. No credential secrets are ever logged.
+
+Note: under `IAM_AUTH_DEBUG=true` each `getToken()` performs two cache reads — one to assemble the debug snapshot and one for the actual lookup. Negligible at investigation cadence; another reason not to leave debug on in steady state.
+
 ## AWS Credential Caching
 
 When using IAM roles (IRSA, Pod Identity, instance profiles), the AWS SDK resolves credentials via network calls to STS or IMDS on every PHP-FPM request. Under high traffic this adds latency and can hit rate limits.
@@ -175,6 +216,8 @@ $s3 = new \Aws\S3\S3Client([...]);
 ```
 
 **Cache security note:** Cached credentials are stored in plaintext in the configured backend. Ensure your cache backend is appropriately secured. APCu stores credentials in shared memory within the PHP process, which is not accessible externally.
+
+**Static credentials are not cached.** Credentials without a reported expiration (e.g. static env keys, `~/.aws/credentials` profiles without an `expiration`) cannot be safely cached because the package has no signal for when to evict them. Each request will re-invoke the SDK credential chain. This is intentional: stale long-lived credentials would otherwise outlive their server-side validity and trigger the very failure mode the cache fingerprint guards against. Production workloads on IRSA / Pod Identity / instance profiles get full caching benefits because the SDK reports an expiration.
 
 ## License
 

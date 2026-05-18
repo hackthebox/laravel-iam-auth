@@ -6,6 +6,7 @@ use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
+use Illuminate\Support\Facades\Log;
 use Orchestra\Testbench\TestCase;
 
 class IamAuthServiceProviderTest extends TestCase
@@ -108,5 +109,79 @@ class IamAuthServiceProviderTest extends TestCase
         $this->expectExceptionMessage("Unsupported IAM auth credential provider 'banana'");
 
         $this->app->make('iam-auth.credential-provider');
+    }
+
+    public function test_boot_warns_on_negative_credentials_expiry_buffer(): void
+    {
+        config(['iam-auth.credentials_expiry_buffer' => -100]);
+
+        Log::spy();
+
+        (new IamAuthServiceProvider($this->app))->boot();
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(function (string $message, array $context) {
+                return str_contains($message, 'credentials_expiry_buffer')
+                    && $context['value'] === -100;
+            });
+    }
+
+    public function test_boot_does_not_warn_on_large_credentials_expiry_buffer(): void
+    {
+        // Large buffers are an operator choice (frequent refresh on short
+        // sessions), not a misconfiguration. The runtime caches less, which
+        // is observable as agent load; no boot-time warning.
+        config(['iam-auth.credentials_expiry_buffer' => 3600]);
+
+        Log::spy();
+
+        (new IamAuthServiceProvider($this->app))->boot();
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    public function test_boot_warns_on_non_numeric_credentials_expiry_buffer(): void
+    {
+        config(['iam-auth.credentials_expiry_buffer' => 'not-a-number']);
+
+        Log::spy();
+
+        (new IamAuthServiceProvider($this->app))->boot();
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(fn (string $message) => str_contains($message, 'credentials_expiry_buffer'));
+    }
+
+    public function test_boot_does_not_warn_on_valid_credentials_expiry_buffer(): void
+    {
+        config(['iam-auth.credentials_expiry_buffer' => 10]);
+
+        Log::spy();
+
+        (new IamAuthServiceProvider($this->app))->boot();
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    public function test_env_non_numeric_credentials_expiry_buffer_reaches_validator(): void
+    {
+        $_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER'] = 'oops';
+
+        try {
+            config()->set('iam-auth', require __DIR__.'/../config/iam-auth.php');
+
+            $this->assertSame('oops', config('iam-auth.credentials_expiry_buffer'));
+
+            Log::spy();
+            (new IamAuthServiceProvider($this->app))->boot();
+
+            Log::shouldHaveReceived('warning')
+                ->once()
+                ->withArgs(fn (string $message) => str_contains($message, 'is not numeric'));
+        } finally {
+            unset($_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER']);
+        }
     }
 }

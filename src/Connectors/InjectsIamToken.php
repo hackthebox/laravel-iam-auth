@@ -2,9 +2,12 @@
 
 namespace Hackthebox\IamAuth\Connectors;
 
+use Hackthebox\IamAuth\AwsCredentialCache;
 use Hackthebox\IamAuth\RdsTokenProvider;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use PDO;
+use PDOException;
 
 trait InjectsIamToken
 {
@@ -29,16 +32,47 @@ trait InjectsIamToken
             ? (int) $config['port']
             : $this->getDefaultPort();
 
+        $region = $config['region'] ?? config('iam-auth.region');
+        $cacheKey = RdsTokenProvider::cacheKey($config['host'], $port, $config['username'], $region);
+
         $config['password'] = $this->getTokenProvider()->getToken(
             $config['host'],
             $port,
             $config['username'],
-            $config['region'] ?? config('iam-auth.region'),
+            $region,
         );
 
         $options = $this->applyIamSslOptions($options);
 
-        return parent::createConnection($dsn, $config, $options);
+        try {
+            return parent::createConnection($dsn, $config, $options);
+        } catch (PDOException $e) {
+            if ($this->isAuthRejection($e)) {
+                $this->logAuthRejection($config, $cacheKey);
+            }
+            throw $e;
+        }
+    }
+
+    private function isAuthRejection(PDOException $e): bool
+    {
+        $sqlstate = (string) ($e->errorInfo[0] ?? '');
+        $driverCode = $e->errorInfo[1] ?? null;
+
+        $isPostgresClass28 = str_starts_with($sqlstate, '28');
+        $isMysqlAccessDenied = $driverCode === 1045;
+
+        return $isPostgresClass28 || $isMysqlAccessDenied;
+    }
+
+    private function logAuthRejection(array $config, string $cacheKey): void
+    {
+        Log::warning('iam-auth.rds-auth-rejected', [
+            'cache_key' => $cacheKey,
+            'username' => $config['username'] ?? null,
+            'host' => $config['host'] ?? null,
+            ...app(AwsCredentialCache::class)->credentialSnapshot(),
+        ]);
     }
 
     /**

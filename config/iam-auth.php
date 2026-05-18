@@ -64,6 +64,26 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | AWS Credentials Expiry Buffer
+    |--------------------------------------------------------------------------
+    |
+    | How many seconds before the AWS SDK credentials' reported expiration
+    | the cache should evict them. Acts as a safety margin against clock
+    | drift and serving latency. Smaller values cache credentials longer
+    | and hit the credential provider less often; larger values refresh
+    | more aggressively at the cost of higher Pod Identity Agent / STS
+    | load near session boundaries.
+    |
+    | The default of 10s is appropriate for NTP-synced infrastructure
+    | (typical sub-second drift). Increase if you observe clock drift or
+    | use very short-lived sessions.
+    |
+    */
+
+    'credentials_expiry_buffer' => env('IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER', 10),
+
+    /*
+    |--------------------------------------------------------------------------
     | PostgreSQL SSL Mode
     |--------------------------------------------------------------------------
     |
@@ -87,5 +107,18 @@ return [
     */
 
     'ssl_ca_path' => env('IAM_AUTH_SSL_CA_PATH'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Debug Logging
+    |--------------------------------------------------------------------------
+    |
+    | When true, enables verbose debug logging of credential and token cache
+    | state for short investigation soaks. High log volume; do not enable
+    | in steady-state production. No credential secrets are logged.
+    |
+    */
+
+    'debug' => (bool) env('IAM_AUTH_DEBUG', false),
 
 ];
