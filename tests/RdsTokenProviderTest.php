@@ -381,6 +381,7 @@ class RdsTokenProviderTest extends TestCase
         $provider = Mockery::mock(RdsTokenProvider::class, [$credentialProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
+        $provider->shouldReceive('apcuAvailable')->andReturn(false);
 
         $passedToFactory = null;
         $provider->shouldReceive('createAuthTokenGenerator')
