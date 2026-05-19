@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-05-18
+
+### Breaking changes
+
+- Removed `cache_ttl` config key and `IAM_AUTH_CACHE_TTL` env var. RDS auth tokens are now signed per call instead of cached. SigV4 signing cost is microseconds; the cache complexity did not justify itself.
+- Removed `credentials_expiry_buffer` config key and `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` env var. AWS SDK's standard `Aws\CacheInterface` semantics now govern credential cache TTL.
+- `RdsTokenProvider` constructor now takes two credential provider callables instead of one (cached + fresh).
+- `InjectsIamToken` trait constructor contract changed: connector classes must expose `getCacheStore(): Aws\CacheInterface` and `getTokenProvider(): RdsTokenProvider`. The three built-in connectors (MySQL, MariaDB, Postgres) are updated; any custom connector mixing in the trait must update too.
+- Deleted `Hackthebox\IamAuth\AwsCredentialCache`. Replaced by `Hackthebox\IamAuth\Cache\AwsCredentialCacheStore` which implements `Aws\CacheInterface`.
+
+### Added
+
+- `Aws\CacheInterface` integration: credential caching now uses the AWS SDK's standard extension point. Cached credentials are shared across all AWS SDK clients in the host application (S3, SQS, SES, OpenSearch, etc.), not just RDS.
+- Connector-layer single-retry on auth rejection (SQLSTATE 28 / native 1045). Invalidates the credentials cache, mints a fresh token via an uncached provider, retries once.
+- `iam-auth.rds-auth-rejected-retry-failed` observability channel for the genuinely-residual case (retry also rejected).
+- README "Known upstream limitations" section documenting AWS SDK and Pod Identity Agent gaps the package consciously does not work around.
+
+### Removed
+
+- Token cache (`RdsTokenProvider` no longer caches signed tokens).
+- `sig_kid` fingerprint machinery (the token cache it served is gone).
+- SDK singleton rebuild in `IamAuthServiceProvider`. v2 injects credentials via `config('aws.credentials')` without replacing the singleton, preserving any handlers/middleware added by other packages.
+- Boot-time `credentials_expiry_buffer` validator.
+
+### Fixed
+
+- AWS SDK singleton no longer loses other-package customizations (#4).
+- All AWS SDK clients in the host app now share cached credentials (#3).
+
 ## [2.0.0] - 2026-03-26
 
 ### Added
@@ -66,7 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for PHP 8.2, 8.3, and 8.4
 - Support for Laravel 11 and 12
 
-[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v3.0.0...HEAD
+[3.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.0...v3.0.0
 [2.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.1...v1.0.2
