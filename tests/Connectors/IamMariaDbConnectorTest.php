@@ -5,6 +5,7 @@ namespace Hackthebox\IamAuth\Tests\Connectors;
 use Aws\CacheInterface;
 use Aws\Credentials\Credentials;
 use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
+use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
@@ -35,9 +36,7 @@ class IamMariaDbConnectorTest extends TestCase
             ->with('my-rds.cluster.eu-central-1.rds.amazonaws.com', 3306, 'app', 'eu-central-1')
             ->andReturn('iam-token-value');
 
-        $cacheStore = Mockery::mock(CacheInterface::class);
-
-        $connector = Mockery::mock(IamMariaDbConnector::class, [$cacheStore, $tokenProvider])
+        $connector = Mockery::mock(IamMariaDbConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -70,9 +69,7 @@ class IamMariaDbConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldNotReceive('getToken');
 
-        $cacheStore = Mockery::mock(CacheInterface::class);
-
-        $connector = Mockery::mock(IamMariaDbConnector::class, [$cacheStore, $tokenProvider])
+        $connector = Mockery::mock(IamMariaDbConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -98,9 +95,12 @@ class IamMariaDbConnectorTest extends TestCase
 
     public function test_mysql_1045_logs_structured_warning(): void
     {
+        // Message intentionally omits the "for user" suffix that matches Laravel's
+        // DetectsLostConnections list, which would otherwise silently swallow the
+        // first throw via tryAgainIfCausedByLostConnection before our trait sees it.
         $connector = $this->mockConnectorThatThrows($this->makePdoException(
             'HY000', 1045,
-            "SQLSTATE[HY000] [1045] Access denied for user 'iam_user'@'10.0.4.26' (using password: YES)",
+            "SQLSTATE[HY000] [1045] Access denied (using password: YES)",
         ));
 
         Log::spy();
@@ -112,21 +112,18 @@ class IamMariaDbConnectorTest extends TestCase
             ->withArgs(fn (string $msg, array $ctx) => $msg === 'iam-auth.rds-auth-rejected');
     }
 
-    public function test_auth_rejection_warning_includes_credentials_from_laravel_cache(): void
+    public function test_auth_rejection_warning_includes_credentials_from_cache(): void
     {
-        config(['iam-auth.cache_store' => 'file']);
-        cache()->store('file')->flush();
-
         $creds = new Credentials('AKIAEXAMPLE12345', 'secret', 'session-token', time() + 3600);
-        cache()->store('file')->put(AwsCredentialCacheStore::CACHE_KEY, $creds, 3600);
 
-        $tokenProvider = $this->createMock(RdsTokenProvider::class);
-        $tokenProvider->method('getToken')->willReturn('tok');
+        $cacheStore = $this->stubCacheStore($creds);
+        $this->app->instance(CacheInterface::class, $cacheStore);
+        $this->app->forgetInstance(CachedCredentialProvider::class);
 
-        $cacheStore = $this->app->make(AwsCredentialCacheStore::class);
+        $tokenProvider = $this->app->make(RdsTokenProvider::class);
 
         $rejection = $this->makePdoException('HY000', 1045, "SQLSTATE[HY000] [1045] Access denied");
-        $connector = $this->makeConnector($tokenProvider, $cacheStore, attempts: [$rejection, $this->createMock(PDO::class)]);
+        $connector = $this->makeConnector($tokenProvider, attempts: [$rejection, $this->createMock(PDO::class)]);
 
         Log::spy();
 
@@ -165,15 +162,15 @@ class IamMariaDbConnectorTest extends TestCase
         $tokenProvider = $this->createMock(RdsTokenProvider::class);
         $tokenProvider->expects($this->exactly(2))
             ->method('getToken')
-            ->willReturnOnConsecutiveCalls('token1', 'token2');
-
-        $cacheStore = $this->createMock(CacheInterface::class);
-        $cacheStore->expects($this->once())
-            ->method('remove')
-            ->with(AwsCredentialCacheStore::CACHE_KEY);
+            ->willReturnCallback(function ($h, $p, $u, $r, $force = false) {
+                static $i = 0;
+                $i++;
+                $this->assertSame($i === 2, $force, 'second call must forceFresh, first must not');
+                return $i === 1 ? 'token1' : 'token2';
+            });
 
         $connector = $this->makeConnector(
-            $tokenProvider, $cacheStore,
+            $tokenProvider,
             attempts: [$this->mariaAuthRejection(), $this->createMock(PDO::class)],
         );
 
@@ -192,12 +189,10 @@ class IamMariaDbConnectorTest extends TestCase
         $tokenProvider = $this->createMock(RdsTokenProvider::class);
         $tokenProvider->method('getToken')->willReturn('token');
 
-        $cacheStore = $this->createMock(CacheInterface::class);
-
         $first = $this->mariaAuthRejection('first');
         $second = $this->mariaAuthRejection('second');
 
-        $connector = $this->makeConnector($tokenProvider, $cacheStore, attempts: [$first, $second]);
+        $connector = $this->makeConnector($tokenProvider, attempts: [$first, $second]);
 
         try {
             $connector->createConnection('mysql:host=h;dbname=d', $this->iamConfig(), []);
@@ -219,13 +214,10 @@ class IamMariaDbConnectorTest extends TestCase
         $tokenProvider = $this->createMock(RdsTokenProvider::class);
         $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
 
-        $cacheStore = $this->createMock(CacheInterface::class);
-        $cacheStore->expects($this->never())->method('remove');
-
         $networkErr = new PDOException('connection timeout');
         $networkErr->errorInfo = ['HY000', 2002, 'connect timeout'];
 
-        $connector = $this->makeConnector($tokenProvider, $cacheStore, attempts: [$networkErr]);
+        $connector = $this->makeConnector($tokenProvider, attempts: [$networkErr]);
 
         $this->expectException(PDOException::class);
         $connector->createConnection('mysql:host=h;dbname=d', $this->iamConfig(), []);
@@ -245,10 +237,8 @@ class IamMariaDbConnectorTest extends TestCase
             return 'token';
         });
 
-        $cacheStore = $this->createMock(CacheInterface::class);
-
         $connector = $this->makeConnector(
-            $tokenProvider, $cacheStore,
+            $tokenProvider,
             attempts: [$this->mariaAuthRejection()],
         );
 
@@ -272,23 +262,21 @@ class IamMariaDbConnectorTest extends TestCase
 
     private function makeConnector(
         RdsTokenProvider $tokenProvider,
-        CacheInterface $cacheStore,
         array $attempts,
     ): IamMariaDbConnector {
-        return new class($cacheStore, $tokenProvider, $attempts) extends IamMariaDbConnector {
+        return new class($tokenProvider, $attempts) extends IamMariaDbConnector {
             public int $callIdx = 0;
             public array $attempts;
 
             public function __construct(
-                CacheInterface $cs,
                 RdsTokenProvider $tp,
                 array $attempts,
             ) {
-                parent::__construct($cs, $tp);
+                parent::__construct($tp);
                 $this->attempts = $attempts;
             }
 
-            protected function createPdoConnection($dsn, $username, $password, $options): PDO
+            protected function createPdoConnection($dsn, $username, #[\SensitiveParameter] $password, $options): PDO
             {
                 $entry = $this->attempts[$this->callIdx++] ?? null;
                 if ($entry instanceof PDOException) {
@@ -302,16 +290,15 @@ class IamMariaDbConnectorTest extends TestCase
         };
     }
 
-    private function mockConnectorThatThrows(PDOException $exception, ?CacheInterface $cacheStore = null): IamMariaDbConnector
+    private function mockConnectorThatThrows(PDOException $exception): IamMariaDbConnector
     {
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('iam-token-value');
-
-        $cacheStore ??= Mockery::mock(CacheInterface::class)->shouldIgnoreMissing();
+        $tokenProvider->shouldReceive('credentialSnapshot')->andReturn([]);
 
         $pdo = Mockery::mock(PDO::class);
 
-        $connector = Mockery::mock(IamMariaDbConnector::class, [$cacheStore, $tokenProvider])
+        $connector = Mockery::mock(IamMariaDbConnector::class, [$tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -341,5 +328,42 @@ class IamMariaDbConnectorTest extends TestCase
             'use_iam_auth' => true,
             'region' => 'eu-central-1',
         ];
+    }
+
+    private function stubCacheStore(Credentials $seed): AwsCredentialCacheStore
+    {
+        return new class($seed) extends AwsCredentialCacheStore {
+            public function __construct(private Credentials $seed)
+            {
+            }
+
+            protected function apcuAvailable(): bool
+            {
+                return false;
+            }
+
+            protected function cacheStoreName(): ?string
+            {
+                return 'iam-auth-stub';
+            }
+
+            public function get($key)
+            {
+                return $this->seed;
+            }
+
+            public function peek(string $key): ?\Aws\Credentials\CredentialsInterface
+            {
+                return $this->seed;
+            }
+
+            public function set($key, $value, $ttl = 0): void
+            {
+            }
+
+            public function remove($key): void
+            {
+            }
+        };
     }
 }

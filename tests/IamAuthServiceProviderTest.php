@@ -2,11 +2,15 @@
 
 namespace Hackthebox\IamAuth\Tests;
 
+use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
+use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use Orchestra\Testbench\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class IamAuthServiceProviderTest extends TestCase
 {
@@ -48,25 +52,23 @@ class IamAuthServiceProviderTest extends TestCase
         $this->assertStringEndsWith('resources/certs/global-bundle.pem', config('iam-auth.ssl_ca_path'));
     }
 
-    public function test_registers_credential_provider_binding(): void
+    public function test_cached_credential_provider_is_singleton(): void
     {
-        $provider = $this->app->make('iam-auth.credential-provider');
+        $a = app(CachedCredentialProvider::class);
+        $b = app(CachedCredentialProvider::class);
 
-        $this->assertIsCallable($provider);
+        $this->assertSame($a, $b);
     }
 
-    /**
-     * @dataProvider validCredentialProviderNames
-     */
+    #[DataProvider('validCredentialProviderNames')]
     public function test_builds_all_supported_credential_providers(string $name): void
     {
         config(['iam-auth.credential_provider' => $name]);
 
-        // Force re-resolution of the singleton
-        $this->app->forgetInstance('iam-auth.credential-provider');
+        $this->app->forgetInstance(CachedCredentialProvider::class);
 
-        $provider = $this->app->make('iam-auth.credential-provider');
-        $this->assertIsCallable($provider);
+        $provider = $this->app->make(CachedCredentialProvider::class);
+        $this->assertInstanceOf(CachedCredentialProvider::class, $provider);
     }
 
     public static function validCredentialProviderNames(): array
@@ -86,34 +88,24 @@ class IamAuthServiceProviderTest extends TestCase
     {
         config(['iam-auth.credential_provider' => 'banana']);
 
-        $this->app->forgetInstance('iam-auth.credential-provider');
+        $this->app->forgetInstance(CachedCredentialProvider::class);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage("Unsupported IAM auth credential provider 'banana'");
 
-        $this->app->make('iam-auth.credential-provider');
+        $this->app->make(CachedCredentialProvider::class);
     }
 
     public function test_binds_aws_cache_interface_to_credential_cache_store(): void
     {
         $store = app(\Aws\CacheInterface::class);
-        $this->assertInstanceOf(\Hackthebox\IamAuth\Cache\AwsCredentialCacheStore::class, $store);
+        $this->assertInstanceOf(AwsCredentialCacheStore::class, $store);
     }
 
-    public function test_binds_cached_and_fresh_credential_providers_as_distinct_callables(): void
+    public function test_rds_token_provider_resolves_with_cached_provider(): void
     {
-        $cached = app('iam-auth.credential-provider');
-        $fresh = app('iam-auth.credential-provider-fresh');
-
-        $this->assertIsCallable($cached);
-        $this->assertIsCallable($fresh);
-        $this->assertNotSame($cached, $fresh);
-    }
-
-    public function test_rds_token_provider_resolves_with_two_providers(): void
-    {
-        $provider = app(\Hackthebox\IamAuth\RdsTokenProvider::class);
-        $this->assertInstanceOf(\Hackthebox\IamAuth\RdsTokenProvider::class, $provider);
+        $provider = app(RdsTokenProvider::class);
+        $this->assertInstanceOf(RdsTokenProvider::class, $provider);
     }
 
     public function test_aws_credentials_config_injected_without_rebuilding_singleton(): void
@@ -127,5 +119,24 @@ class IamAuthServiceProviderTest extends TestCase
 
         $this->assertTrue(property_exists($sdk, '__sentinel'));
         $this->assertSame('preserved', $sdk->__sentinel);
+    }
+
+    public function test_aws_credentials_config_uses_cached_credential_provider(): void
+    {
+        $resolved = config('aws.credentials');
+        $this->assertIsCallable($resolved);
+
+        $promise = $resolved();
+        $this->assertInstanceOf(\GuzzleHttp\Promise\PromiseInterface::class, $promise);
+    }
+
+    public function test_ecs_credential_provider_does_not_crash_when_wrapped(): void
+    {
+        config(['iam-auth.credential_provider' => 'ecs']);
+        $this->app->forgetInstance(CachedCredentialProvider::class);
+
+        $provider = $this->app->make(CachedCredentialProvider::class);
+
+        $this->assertInstanceOf(CachedCredentialProvider::class, $provider);
     }
 }

@@ -36,9 +36,9 @@ return [
     | Cache Store
     |--------------------------------------------------------------------------
     |
-    | The Laravel cache store for caching RDS IAM auth tokens and resolved
-    | AWS SDK credentials when APCu is not available. A single store is used
-    | for both (with separate cache keys and TTLs).
+    | The Laravel cache store for caching resolved AWS SDK credentials when
+    | APCu is not available. RDS auth tokens are signed per call and not
+    | cached.
     |
     | APCu always takes priority when available (best for PHP-FPM).
     | Set to null to disable Laravel cache fallback.

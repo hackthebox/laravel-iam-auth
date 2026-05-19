@@ -2,7 +2,6 @@
 
 namespace Hackthebox\IamAuth\Connectors;
 
-use Aws\CacheInterface;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Database\Connectors\MySqlConnector;
 use PDO;
@@ -12,7 +11,6 @@ class IamMySqlConnector extends MySqlConnector
     use InjectsIamToken;
 
     public function __construct(
-        private readonly CacheInterface $cacheStore,
         private readonly RdsTokenProvider $tokenProvider,
     ) {
     }
@@ -20,11 +18,6 @@ class IamMySqlConnector extends MySqlConnector
     protected function getTokenProvider(): RdsTokenProvider
     {
         return $this->tokenProvider;
-    }
-
-    protected function getCacheStore(): CacheInterface
-    {
-        return $this->cacheStore;
     }
 
     protected function applyIamSslOptions(array $options): array

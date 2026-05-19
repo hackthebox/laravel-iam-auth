@@ -2,7 +2,6 @@
 
 namespace Hackthebox\IamAuth\Connectors;
 
-use Aws\CacheInterface;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Database\Connectors\PostgresConnector;
 use InvalidArgumentException;
@@ -12,8 +11,9 @@ class IamPostgresConnector extends PostgresConnector
 {
     use InjectsIamToken;
 
+    private const SECURE_SSL_MODES = ['verify-ca', 'verify-full'];
+
     public function __construct(
-        private readonly CacheInterface $cacheStore,
         private readonly RdsTokenProvider $tokenProvider,
     ) {
     }
@@ -22,13 +22,6 @@ class IamPostgresConnector extends PostgresConnector
     {
         return $this->tokenProvider;
     }
-
-    protected function getCacheStore(): CacheInterface
-    {
-        return $this->cacheStore;
-    }
-
-    private const SECURE_SSL_MODES = ['verify-ca', 'verify-full'];
 
     public function connect(array $config): PDO
     {

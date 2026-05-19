@@ -2,6 +2,9 @@
 
 namespace Hackthebox\IamAuth\Tests;
 
+use Aws\CacheInterface;
+use Aws\Credentials\Credentials;
+use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Support\Facades\Log;
@@ -19,10 +22,8 @@ class RdsTokenProviderTest extends TestCase
 
     public function test_get_token_invokes_provider_and_signs(): void
     {
-        $creds = new \Aws\Credentials\Credentials('AKIATEST', 'secret', null, time() + 3600);
-        $provider = fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
-
-        $rds = new \Hackthebox\IamAuth\RdsTokenProvider($provider, $provider);
+        $creds = new Credentials('AKIATEST', 'secret', null, time() + 3600);
+        $rds = new RdsTokenProvider($this->makeProvider($creds));
 
         $token = $rds->getToken('db.example.aws', 3306, 'iam_user', 'eu-central-1');
 
@@ -31,42 +32,75 @@ class RdsTokenProviderTest extends TestCase
         $this->assertStringContainsString('db.example.aws:3306', $token);
     }
 
-    public function test_force_fresh_uses_fresh_provider_not_cached(): void
+    public function test_force_fresh_invalidates_then_refetches(): void
     {
-        $cachedCalls = 0;
-        $freshCalls = 0;
-        $creds = new \Aws\Credentials\Credentials('AKIA', 'secret', null, time() + 3600);
-
-        $cached = function () use (&$cachedCalls, $creds) {
-            $cachedCalls++;
-            return \GuzzleHttp\Promise\Create::promiseFor($creds);
-        };
-        $fresh = function () use (&$freshCalls, $creds) {
-            $freshCalls++;
+        $creds = new Credentials('AKIA', 'secret', null, time() + 3600);
+        $baseCalls = 0;
+        $base = function () use (&$baseCalls, $creds) {
+            $baseCalls++;
             return \GuzzleHttp\Promise\Create::promiseFor($creds);
         };
 
-        $rds = new \Hackthebox\IamAuth\RdsTokenProvider($cached, $fresh);
+        $removeCalls = 0;
+        $store = $this->createMock(CacheInterface::class);
+        $store->method('get')->willReturn(null);
+        $store->method('remove')->willReturnCallback(function () use (&$removeCalls) {
+            $removeCalls++;
+        });
+
+        $provider = new CachedCredentialProvider($base, $store, 'test-key');
+        $rds = new RdsTokenProvider($provider);
 
         $rds->getToken('h', 3306, 'u', 'r');
         $rds->getToken('h', 3306, 'u', 'r', forceFresh: true);
 
-        $this->assertSame(1, $cachedCalls);
-        $this->assertSame(1, $freshCalls);
+        $this->assertSame(2, $baseCalls, 'forceFresh must invalidate and re-fetch from base');
+        $this->assertSame(1, $removeCalls, 'forceFresh must call store->remove');
+    }
+
+    public function test_get_token_without_force_fresh_does_not_invalidate(): void
+    {
+        $creds = new Credentials('AKIA', 'secret', null, time() + 3600);
+        $base = static fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
+
+        $store = $this->createMock(CacheInterface::class);
+        $store->method('get')->willReturn(null);
+        $store->expects($this->never())->method('remove');
+
+        $provider = new CachedCredentialProvider($base, $store, 'test-key');
+        $rds = new RdsTokenProvider($provider);
+
+        $rds->getToken('h', 3306, 'u', 'r');
+    }
+
+    public function test_credential_snapshot_delegates_to_cached_provider(): void
+    {
+        $creds = new Credentials('AKIASNAP123', 'secret', null, time() + 1200);
+        $base = static fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
+        $store = $this->createMock(CacheInterface::class);
+        $store->method('get')->willReturn(null);
+
+        $provider = new CachedCredentialProvider($base, $store, 'test-key');
+        $rds = new RdsTokenProvider($provider);
+
+        $rds->getToken('h', 3306, 'u', 'r');
+
+        $snapshot = $rds->credentialSnapshot();
+        $this->assertTrue($snapshot['cred_present']);
+        $this->assertSame('AKIASNAP', $snapshot['cred_access_key_prefix']);
     }
 
     public function test_debug_log_emitted_when_debug_config_true(): void
     {
         config(['iam-auth.debug' => true]);
-        \Illuminate\Support\Facades\Log::spy();
+        Log::spy();
 
-        $creds = new \Aws\Credentials\Credentials('AKIADEBUG', 'secret', null, time() + 3600);
-        $provider = fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
-        $rds = new \Hackthebox\IamAuth\RdsTokenProvider($provider, $provider);
+        $creds = new Credentials('AKIADEBUG', 'secret', null, time() + 3600);
+        $rds = new RdsTokenProvider($this->makeProvider($creds));
 
         $rds->getToken('h', 3306, 'u', 'r');
 
-        \Illuminate\Support\Facades\Log::shouldHaveReceived('debug')
+        Log::shouldHaveReceived('debug')
             ->with('iam-auth.token-access', \Mockery::on(function ($payload) {
                 return $payload['host'] === 'h'
                     && $payload['port'] === 3306
@@ -79,14 +113,22 @@ class RdsTokenProviderTest extends TestCase
     public function test_debug_log_suppressed_when_debug_config_false(): void
     {
         config(['iam-auth.debug' => false]);
-        \Illuminate\Support\Facades\Log::spy();
+        Log::spy();
 
-        $creds = new \Aws\Credentials\Credentials('AKIATESTVALUE', 'secret', null, time() + 3600);
-        $provider = fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
-        $rds = new \Hackthebox\IamAuth\RdsTokenProvider($provider, $provider);
+        $creds = new Credentials('AKIATESTVALUE', 'secret', null, time() + 3600);
+        $rds = new RdsTokenProvider($this->makeProvider($creds));
 
         $rds->getToken('h', 3306, 'u', 'r');
 
-        \Illuminate\Support\Facades\Log::shouldNotHaveReceived('debug');
+        Log::shouldNotHaveReceived('debug');
+    }
+
+    private function makeProvider(Credentials $creds): CachedCredentialProvider
+    {
+        $base = static fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
+        $store = $this->createMock(CacheInterface::class);
+        $store->method('get')->willReturn(null);
+
+        return new CachedCredentialProvider($base, $store, 'test-key');
     }
 }

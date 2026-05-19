@@ -2,8 +2,6 @@
 
 namespace Hackthebox\IamAuth\Connectors;
 
-use Aws\CacheInterface;
-use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
@@ -13,7 +11,6 @@ use PDOException;
 trait InjectsIamToken
 {
     abstract protected function getTokenProvider(): RdsTokenProvider;
-    abstract protected function getCacheStore(): CacheInterface;
 
     public function createConnection($dsn, array $config, array $options): PDO
     {
@@ -37,7 +34,9 @@ trait InjectsIamToken
         $options = $this->applyIamSslOptions($options);
 
         try {
-            return $this->createPdoConnection($dsn, $config['username'], $config['password'], $options);
+            // parent::createConnection (not createPdoConnection): preserves Laravel's
+            // tryAgainIfCausedByLostConnection wrapper around the PDO instantiation.
+            return parent::createConnection($dsn, $config, $options);
         } catch (PDOException $e) {
             if (!$this->isAuthRejection($e)) {
                 throw $e;
@@ -45,15 +44,13 @@ trait InjectsIamToken
 
             $this->logAuthRejection($config);
 
-            $this->getCacheStore()->remove(AwsCredentialCacheStore::CACHE_KEY);
-
             $config['password'] = $tokenProvider->getToken(
                 $config['host'], $port, $config['username'], $region,
                 forceFresh: true,
             );
 
             try {
-                return $this->createPdoConnection($dsn, $config['username'], $config['password'], $options);
+                return parent::createConnection($dsn, $config, $options);
             } catch (PDOException $retryE) {
                 if ($this->isAuthRejection($retryE)) {
                     $this->logAuthRejectionRetryFailed($config);
@@ -61,11 +58,6 @@ trait InjectsIamToken
                 throw $retryE;
             }
         }
-    }
-
-    protected function createPdoConnection($dsn, $username, $password, $options): PDO
-    {
-        return parent::createPdoConnection($dsn, $username, $password, $options);
     }
 
     private function isAuthRejection(PDOException $e): bool
@@ -88,13 +80,10 @@ trait InjectsIamToken
 
     private function rejectionPayload(array $config): array
     {
-        $store = $this->getCacheStore();
-        $snapshot = method_exists($store, 'credentialSnapshot') ? $store->credentialSnapshot() : [];
-
         return [
             'username' => $config['username'] ?? null,
             'host' => $config['host'] ?? null,
-            ...$snapshot,
+            ...$this->getTokenProvider()->credentialSnapshot(),
         ];
     }
 

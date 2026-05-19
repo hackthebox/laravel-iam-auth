@@ -5,6 +5,7 @@ namespace Hackthebox\IamAuth;
 use Aws\CacheInterface;
 use Aws\Credentials\CredentialProvider;
 use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
+use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
@@ -21,34 +22,29 @@ class IamAuthServiceProvider extends ServiceProvider
 
         $this->app->singleton(CacheInterface::class, AwsCredentialCacheStore::class);
 
-        $this->app->singleton('iam-auth.credential-provider', function ($app) {
+        $this->app->singleton(CachedCredentialProvider::class, function ($app) {
             $base = $this->buildBaseProvider();
-            $cache = $app->make(CacheInterface::class);
-            $cached = CredentialProvider::cache($base, $cache, AwsCredentialCacheStore::CACHE_KEY);
-            return CredentialProvider::memoize($cached);
-        });
-
-        $this->app->singleton('iam-auth.credential-provider-fresh', function () {
-            return $this->buildBaseProvider();
-        });
-
-        config(['aws.credentials' => fn () => app('iam-auth.credential-provider')()]);
-
-        $this->app->bind(RdsTokenProvider::class, function ($app) {
-            return new RdsTokenProvider(
-                $app->make('iam-auth.credential-provider'),
-                $app->make('iam-auth.credential-provider-fresh'),
+            return new CachedCredentialProvider(
+                static fn () => $base(),
+                $app->make(CacheInterface::class),
+                AwsCredentialCacheStore::CACHE_KEY,
             );
         });
 
+        config(['aws.credentials' => fn () => app(CachedCredentialProvider::class)()]);
+
+        $this->app->bind(RdsTokenProvider::class, function ($app) {
+            return new RdsTokenProvider($app->make(CachedCredentialProvider::class));
+        });
+
         $this->app->bind('db.connector.mysql', function ($app) {
-            return new IamMySqlConnector($app->make(CacheInterface::class), $app->make(RdsTokenProvider::class));
+            return new IamMySqlConnector($app->make(RdsTokenProvider::class));
         });
         $this->app->bind('db.connector.mariadb', function ($app) {
-            return new IamMariaDbConnector($app->make(CacheInterface::class), $app->make(RdsTokenProvider::class));
+            return new IamMariaDbConnector($app->make(RdsTokenProvider::class));
         });
         $this->app->bind('db.connector.pgsql', function ($app) {
-            return new IamPostgresConnector($app->make(CacheInterface::class), $app->make(RdsTokenProvider::class));
+            return new IamPostgresConnector($app->make(RdsTokenProvider::class));
         });
     }
 

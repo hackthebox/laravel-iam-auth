@@ -13,7 +13,7 @@ This package overrides Laravel's database connectors for MySQL, MariaDB, and Pos
 
 The package does **not** introduce a new database driver. Laravel's `MySqlConnection`, `MariaDbConnection`, and `PostgresConnection` are used as-is.
 
-The package also extends the aws/aws-sdk-php-laravel SDK singleton to cache resolved AWS credentials across PHP-FPM requests, benefiting all AWS SDK calls in your application.
+The package wires `config('aws.credentials')` to a custom `CachedCredentialProvider` so that the AWS SDK singleton (`app('aws')`) and any client created from it share cached credentials across PHP-FPM requests. Other-package customizations on the SDK singleton are preserved (the singleton is not rebuilt).
 
 ## Driver Support
 
@@ -157,8 +157,8 @@ IAM auth tokens are valid for 15 minutes and are generated fresh on each databas
 **Auth rejection triggers a single retry with fresh credentials.** Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) triggers the following recovery sequence:
 
 1. Log `iam-auth.rds-auth-rejected` (warning) with the current credential cache snapshot.
-2. Evict the cached credentials (`AwsCredentialCacheStore::remove`).
-3. Re-sign the RDS token against freshly resolved credentials (bypassing both memoize and the credential cache via a parallel `iam-auth.credential-provider-fresh` binding).
+2. Invalidate `CachedCredentialProvider`'s in-process memo and the cross-request store.
+3. Re-sign the RDS token against freshly resolved credentials, which also repopulates the store so sibling workers benefit from the rotation.
 4. Retry the connection once.
 
 If the retry also fails with an auth rejection, `iam-auth.rds-auth-rejected-retry-failed` is logged and the exception is re-thrown. This covers the common case of a credential rotation window landing between the credential cache write and the DB connect.
@@ -205,14 +205,6 @@ $s3 = new \Aws\S3\S3Client([...]);
 
 This package consciously does not work around the following AWS-side gaps. Each limitation is documented so consumers understand the behavior and where to file issues upstream if material.
 
-### AWS SDK PHP issue #1714
-
-`CredentialProvider::memoize(CredentialProvider::cache(...))` does not honor memoize's `REFRESH_WINDOW` buffer, because `cache()` short-circuits on `!isExpired()` without buffer. In practice, credentials may be returned to the SigV4 signer up to the millisecond of their stated expiration. The connector layer's single-retry on auth rejection (SQLSTATE 28 / native 1045) absorbs the small number of last-millisecond races this causes during credential rotation. We do not implement a client-side buffer.
-
-### `CredentialProvider::memoize` has no invalidation hook
-
-Once memoize has cached credentials in its closure-captured `static $result`, there is no API to invalidate it externally. The retry path therefore uses a parallel uncached credential provider binding (`iam-auth.credential-provider-fresh`) that bypasses both memoize and the credentials cache. Within a single failing request, subsequent DB connects after the retry will still see memoize's stale state. This is bounded by request duration.
-
 ### EKS Pod Identity Agent may serve credentials AWS has invalidated
 
 The agent's internal cache can lag behind server-side session revocation. No client-side mechanism can detect this. The connector retry helps only if the agent has rotated between attempts. If your observability shows sustained `iam-auth.rds-auth-rejected-retry-failed` events, file with `aws/containers-roadmap`; do not add client-side mitigation here.
@@ -225,7 +217,7 @@ RDS speaks the database wire protocol, so auth rejections arrive as `PDOExceptio
 
 v2 is a breaking change with the following migration steps:
 
-1. Update `composer.json` to require `^2.0`.
+1. Update `composer.json` to require `^3.0`.
 2. Remove `cache_ttl` and `credentials_expiry_buffer` from any `config/iam-auth.php` overrides. The RDS token cache is gone (tokens are signed per call); credential cache expiry is governed by the AWS SDK's standard `Aws\CacheInterface` contract.
 3. Remove the `IAM_AUTH_CACHE_TTL` and `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` env vars from deployment manifests.
 4. Existing APCu/Laravel cache entries from v1 will be discarded automatically (different cache key, different value shape). No migration step required.

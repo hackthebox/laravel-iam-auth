@@ -25,7 +25,7 @@
         "phpunit/phpunit": "^11.0"
     },
     "suggest": {
-        "ext-apcu": "Recommended for caching IAM auth tokens and AWS credentials between PHP-FPM requests"
+        "ext-apcu": "Recommended for caching resolved AWS credentials between PHP-FPM requests"
     },
     "autoload": {
         "psr-4": {

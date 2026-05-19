@@ -4,7 +4,7 @@ namespace Hackthebox\IamAuth;
 
 use Aws\Credentials\CredentialsInterface;
 use Aws\Rds\AuthTokenGenerator;
-use Closure;
+use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use Throwable;
@@ -12,8 +12,7 @@ use Throwable;
 class RdsTokenProvider
 {
     public function __construct(
-        private readonly Closure $credentialProvider,
-        private readonly Closure $freshCredentialProvider,
+        private readonly CachedCredentialProvider $credentialProvider,
     ) {
     }
 
@@ -24,12 +23,20 @@ class RdsTokenProvider
         string $region,
         bool $forceFresh = false,
     ): string {
-        $provider = $forceFresh ? $this->freshCredentialProvider : $this->credentialProvider;
-        $credentials = ($provider)()->wait();
+        if ($forceFresh) {
+            $this->credentialProvider->invalidate();
+        }
+
+        $credentials = ($this->credentialProvider)()->wait();
 
         $this->logTokenAccess($host, $port, $username, $region, $credentials, $forceFresh);
 
         return $this->generateToken($credentials, $host, $port, $username, $region);
+    }
+
+    public function credentialSnapshot(): array
+    {
+        return $this->credentialProvider->credentialSnapshot();
     }
 
     private function generateToken(
