@@ -2,6 +2,7 @@
 
 namespace Hackthebox\IamAuth\Tests\Connectors;
 
+use Aws\CacheInterface;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
@@ -22,13 +23,14 @@ class IamMySqlConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldNotReceive('getToken');
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
         $pdo = Mockery::mock(PDO::class);
 
-        // When use_iam_auth is false, parent::createConnection should be called with original password
         $connector->shouldReceive('createPdoConnection')
             ->once()
             ->withArgs(function ($dsn, $username, $password) {
@@ -57,7 +59,9 @@ class IamMySqlConnectorTest extends TestCase
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -93,7 +97,9 @@ class IamMySqlConnectorTest extends TestCase
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -116,7 +122,9 @@ class IamMySqlConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -155,7 +163,9 @@ class IamMySqlConnectorTest extends TestCase
             ->with('my-rds.cluster.eu-west-1.rds.amazonaws.com', 3306, 'app', 'eu-west-1')
             ->andReturn('token');
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -168,7 +178,6 @@ class IamMySqlConnectorTest extends TestCase
             'username' => 'app',
             'password' => '',
             'use_iam_auth' => true,
-            // no 'region' key — should fall back to config
         ];
 
         $connector->createConnection('mysql:host=my-rds', $config, []);
@@ -177,8 +186,9 @@ class IamMySqlConnectorTest extends TestCase
     public function test_throws_on_missing_host(): void
     {
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
+        $cacheStore = Mockery::mock(CacheInterface::class);
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -198,8 +208,9 @@ class IamMySqlConnectorTest extends TestCase
     public function test_throws_on_missing_username(): void
     {
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
+        $cacheStore = Mockery::mock(CacheInterface::class);
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -221,8 +232,9 @@ class IamMySqlConnectorTest extends TestCase
         config(['iam-auth.region' => null]);
 
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
+        $cacheStore = Mockery::mock(CacheInterface::class);
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -243,7 +255,9 @@ class IamMySqlConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -271,8 +285,9 @@ class IamMySqlConnectorTest extends TestCase
     public function test_throws_on_invalid_port(): void
     {
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
+        $cacheStore = Mockery::mock(CacheInterface::class);
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -297,7 +312,9 @@ class IamMySqlConnectorTest extends TestCase
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(IamMySqlConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamMySqlConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 

@@ -2,6 +2,8 @@
 
 namespace Hackthebox\IamAuth\Tests\Connectors;
 
+use Aws\CacheInterface;
+use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
@@ -33,7 +35,9 @@ class IamPostgresConnectorTest extends TestCase
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 5432, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -67,7 +71,9 @@ class IamPostgresConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -101,13 +107,14 @@ class IamPostgresConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
         $pdo = Mockery::mock(PDO::class);
 
-        // Even though connection config has sslmode=prefer, the package forces verify-full
         $connector->shouldReceive('createPdoConnection')
             ->once()
             ->withArgs(function ($dsn) {
@@ -124,7 +131,7 @@ class IamPostgresConnectorTest extends TestCase
             'use_iam_auth' => true,
             'region' => 'us-east-1',
             'charset' => 'utf8',
-            'sslmode' => 'prefer', // should be overridden
+            'sslmode' => 'prefer',
         ];
 
         $connector->connect($config);
@@ -137,7 +144,9 @@ class IamPostgresConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -174,7 +183,9 @@ class IamPostgresConnectorTest extends TestCase
             ->with('my-rds.cluster.us-east-1.rds.amazonaws.com', 5432, 'app', 'us-east-1')
             ->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -210,8 +221,9 @@ class IamPostgresConnectorTest extends TestCase
         config(['iam-auth.pgsql_sslmode' => 'prefer']);
 
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
+        $cacheStore = Mockery::mock(CacheInterface::class);
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -237,7 +249,9 @@ class IamPostgresConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('token');
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -267,7 +281,9 @@ class IamPostgresConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldNotReceive('getToken');
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
@@ -293,48 +309,40 @@ class IamPostgresConnectorTest extends TestCase
         $connector->connect($config);
     }
 
-    /**
-     * @dataProvider postgresAuthRejectionScenarios
-     */
-    public function test_postgres_auth_rejection_logs_structured_warning(
-        string $sqlstate,
-        string $message,
-    ): void {
-        $connector = $this->mockConnectorThatThrows($this->makePdoException($sqlstate, $message));
+    public function test_postgres_28p01_auth_rejection_logs_structured_warning(): void
+    {
+        $connector = $this->mockConnectorThatThrows($this->makePdoException(
+            '28P01',
+            'SQLSTATE[28P01]: Invalid authorization specification: 7 FATAL: password authentication failed for user "iam_user"',
+        ));
 
         Log::spy();
 
-        try {
-            $connector->createConnection('pgsql:host=...', $this->iamConfig(), []);
-            $this->fail('Expected PDOException to propagate.');
-        } catch (PDOException) {
-            // expected
-        }
+        $connector->createConnection('pgsql:host=...', $this->iamConfig(), []);
 
         Log::shouldHaveReceived('warning')
             ->once()
             ->withArgs(fn (string $msg) => $msg === 'iam-auth.rds-auth-rejected');
     }
 
-    public static function postgresAuthRejectionScenarios(): array
+    public function test_postgres_28000_auth_rejection_logs_structured_warning(): void
     {
-        return [
-            'invalid_password (28P01)' => [
-                '28P01',
-                'SQLSTATE[28P01]: Invalid authorization specification: 7 FATAL: password authentication failed for user "iam_user"',
-            ],
-            'invalid_authorization_specification (28000)' => [
-                '28000',
-                'SQLSTATE[28000]: Invalid authorization specification: 7 FATAL: no pg_hba.conf entry for host "10.0.4.26", user "iam_user"',
-            ],
-        ];
+        $connector = $this->mockConnectorThatThrows($this->makePdoException(
+            '28000',
+            'SQLSTATE[28000]: Invalid authorization specification: 7 FATAL: no pg_hba.conf entry for host "10.0.4.26", user "iam_user"',
+        ));
+
+        Log::spy();
+
+        $connector->createConnection('pgsql:host=...', $this->iamConfig(), []);
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(fn (string $msg) => $msg === 'iam-auth.rds-auth-rejected');
     }
 
     public function test_postgres_non_auth_pdo_exception_does_not_log_warning(): void
     {
-        // SQLSTATE 42501 = insufficient_privilege (Class 42 — access rule
-        // violation, not Class 28). Authorization-adjacent but per-statement,
-        // not a connection-time auth rejection.
         $connector = $this->mockConnectorThatThrows(
             $this->makePdoException('42501', "SQLSTATE[42501]: Insufficient privilege: 7 ERROR: permission denied for table users")
         );
@@ -344,10 +352,177 @@ class IamPostgresConnectorTest extends TestCase
         try {
             $connector->createConnection('pgsql:host=...', $this->iamConfig(), []);
         } catch (PDOException) {
-            // expected
         }
 
         Log::shouldNotHaveReceived('warning');
+    }
+
+    public function test_retry_succeeds_after_auth_rejection_28p01(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->exactly(2))
+            ->method('getToken')
+            ->willReturnOnConsecutiveCalls('token1', 'token2');
+
+        $cacheStore = $this->createMock(CacheInterface::class);
+        $cacheStore->expects($this->once())
+            ->method('remove')
+            ->with(AwsCredentialCacheStore::CACHE_KEY);
+
+        $connector = $this->makeConnector(
+            $tokenProvider, $cacheStore,
+            attempts: [$this->pgAuthRejection('28P01'), $this->createMock(PDO::class)],
+        );
+
+        $pdo = $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+        $this->assertNotNull($pdo);
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+        Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
+    }
+
+    public function test_retry_failure_logs_retry_failed_and_propagates_second_exception(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->method('getToken')->willReturn('token');
+
+        $cacheStore = $this->createMock(CacheInterface::class);
+
+        $first = $this->pgAuthRejection('28000', 'first');
+        $second = $this->pgAuthRejection('28P01', 'second');
+
+        $connector = $this->makeConnector($tokenProvider, $cacheStore, attempts: [$first, $second]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException $e) {
+            $this->assertStringContainsString('second', $e->getMessage());
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected-retry-failed', Mockery::any())->once();
+    }
+
+    public function test_non_auth_pdo_exception_propagates_without_retry(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+        $cacheStore = $this->createMock(CacheInterface::class);
+        $cacheStore->expects($this->never())->method('remove');
+
+        $networkErr = new PDOException('connection timeout');
+        $networkErr->errorInfo = ['08006', 7, 'connection failure'];
+
+        $connector = $this->makeConnector($tokenProvider, $cacheStore, attempts: [$networkErr]);
+
+        $this->expectException(PDOException::class);
+        $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    public function test_non_auth_42501_does_not_trigger_retry(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+        $cacheStore = $this->createMock(CacheInterface::class);
+        $cacheStore->expects($this->never())->method('remove');
+
+        $err = new PDOException('permission denied');
+        $err->errorInfo = ['42501', 7, 'permission denied for table users'];
+
+        $connector = $this->makeConnector($tokenProvider, $cacheStore, attempts: [$err]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException) {
+        }
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    public function test_credentials_exception_during_retry_propagates(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->method('getToken')->willReturnCallback(function ($h, $p, $u, $r, $force = false) {
+            if ($force) {
+                throw new \Aws\Exception\CredentialsException('agent unreachable');
+            }
+            return 'token';
+        });
+
+        $cacheStore = $this->createMock(CacheInterface::class);
+
+        $connector = $this->makeConnector(
+            $tokenProvider, $cacheStore,
+            attempts: [$this->pgAuthRejection('28P01')],
+        );
+
+        try {
+            $connector->createConnection('pgsql:host=h;dbname=d', $this->iamConfig(), []);
+            $this->fail('expected CredentialsException');
+        } catch (\Aws\Exception\CredentialsException) {
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+        Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
+    }
+
+    private function pgAuthRejection(string $sqlstate = '28000', string $msg = 'invalid password'): PDOException
+    {
+        $e = new PDOException("SQLSTATE[$sqlstate]: $msg");
+        $e->errorInfo = [$sqlstate, 7, $msg];
+        return $e;
+    }
+
+    private function makeConnector(
+        RdsTokenProvider $tokenProvider,
+        CacheInterface $cacheStore,
+        array $attempts,
+    ): IamPostgresConnector {
+        return new class($cacheStore, $tokenProvider, $attempts) extends IamPostgresConnector {
+            public int $callIdx = 0;
+            public array $attempts;
+
+            public function __construct(
+                CacheInterface $cs,
+                RdsTokenProvider $tp,
+                array $attempts,
+            ) {
+                parent::__construct($cs, $tp);
+                $this->attempts = $attempts;
+            }
+
+            protected function createPdoConnection($dsn, $username, $password, $options): PDO
+            {
+                $entry = $this->attempts[$this->callIdx++] ?? null;
+                if ($entry instanceof PDOException) {
+                    throw $entry;
+                }
+                if ($entry instanceof PDO) {
+                    return $entry;
+                }
+                throw new \RuntimeException('no attempt seeded at index '.($this->callIdx - 1));
+            }
+        };
     }
 
     private function mockConnectorThatThrows(PDOException $exception): IamPostgresConnector
@@ -355,11 +530,19 @@ class IamPostgresConnectorTest extends TestCase
         $tokenProvider = Mockery::mock(RdsTokenProvider::class);
         $tokenProvider->shouldReceive('getToken')->andReturn('iam-token-value');
 
-        $connector = Mockery::mock(IamPostgresConnector::class, [$tokenProvider])
+        $cacheStore = Mockery::mock(CacheInterface::class);
+        $cacheStore->shouldReceive('remove')->andReturn(null);
+
+        $pdo = Mockery::mock(PDO::class);
+
+        $connector = Mockery::mock(IamPostgresConnector::class, [$cacheStore, $tokenProvider])
             ->makePartial()
             ->shouldAllowMockingProtectedMethods();
 
-        $connector->shouldReceive('createPdoConnection')->andThrow($exception);
+        $connector->shouldReceive('createPdoConnection')
+            ->once()->andThrow($exception);
+        $connector->shouldReceive('createPdoConnection')
+            ->andReturn($pdo);
 
         return $connector;
     }

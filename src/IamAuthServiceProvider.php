@@ -41,9 +41,15 @@ class IamAuthServiceProvider extends ServiceProvider
             );
         });
 
-        $this->app->bind('db.connector.mysql', IamMySqlConnector::class);
-        $this->app->bind('db.connector.mariadb', IamMariaDbConnector::class);
-        $this->app->bind('db.connector.pgsql', IamPostgresConnector::class);
+        $this->app->bind('db.connector.mysql', function ($app) {
+            return new IamMySqlConnector($app->make(CacheInterface::class), $app->make(RdsTokenProvider::class));
+        });
+        $this->app->bind('db.connector.mariadb', function ($app) {
+            return new IamMariaDbConnector($app->make(CacheInterface::class), $app->make(RdsTokenProvider::class));
+        });
+        $this->app->bind('db.connector.pgsql', function ($app) {
+            return new IamPostgresConnector($app->make(CacheInterface::class), $app->make(RdsTokenProvider::class));
+        });
     }
 
     public function boot(): void
