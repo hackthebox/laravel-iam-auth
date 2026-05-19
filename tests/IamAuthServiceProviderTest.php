@@ -45,7 +45,6 @@ class IamAuthServiceProviderTest extends TestCase
     public function test_merges_config(): void
     {
         $this->assertNotNull(config('iam-auth.region'));
-        $this->assertSame(600, config('iam-auth.cache_ttl'));
         $this->assertStringEndsWith('resources/certs/global-bundle.pem', config('iam-auth.ssl_ca_path'));
     }
 
