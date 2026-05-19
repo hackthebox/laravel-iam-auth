@@ -253,6 +253,39 @@ class IamMariaDbConnectorTest extends TestCase
         Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
     }
 
+    public function test_caused_by_lost_connection_returns_false_for_auth_rejection(): void
+    {
+        $connector = $this->makeConnector(
+            $this->createMock(RdsTokenProvider::class),
+            attempts: [],
+        );
+
+        $ref = new \ReflectionMethod($connector, 'causedByLostConnection');
+        $ref->setAccessible(true);
+
+        $authRejection = $this->mariaAuthRejection();
+        $this->assertFalse($ref->invoke($connector, $authRejection));
+    }
+
+    public function test_caused_by_lost_connection_delegates_to_parent_for_non_auth(): void
+    {
+        $connector = $this->makeConnector(
+            $this->createMock(RdsTokenProvider::class),
+            attempts: [],
+        );
+
+        $ref = new \ReflectionMethod($connector, 'causedByLostConnection');
+        $ref->setAccessible(true);
+
+        $lostConnection = new PDOException('SQLSTATE[HY000] [2006] MySQL server has gone away');
+        $lostConnection->errorInfo = ['HY000', 2006, 'MySQL server has gone away'];
+        $this->assertTrue($ref->invoke($connector, $lostConnection));
+
+        $unrelated = new PDOException('Table not found');
+        $unrelated->errorInfo = ['42S02', 1146, 'Table not found'];
+        $this->assertFalse($ref->invoke($connector, $unrelated));
+    }
+
     private function mariaAuthRejection(string $msg = 'access denied'): PDOException
     {
         $e = new PDOException($msg);

@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - All AWS SDK clients in the host app now share cached credentials (#3).
 - `credential_provider=ecs` (and any other invokable-class base provider) no longer crashes on construction. The base provider is wrapped in a closure so both `Closure` and invokable-class returns from `CredentialProvider::*` factories work.
 - IAM connectors now route the PDO instantiation through `parent::createConnection`, preserving Laravel's `tryAgainIfCausedByLostConnection` wrapper. The earlier `createPdoConnection` seam silently bypassed that retry layer.
+- Override `causedByLostConnection` in `InjectsIamToken` to skip auth-rejection errors (SQLSTATE 28 / native 1045). Prevents Laravel's stock lost-connection retry from silently re-attempting the connect with a stale token before our trait's retry path can invalidate credentials.
 - The auth-rejection retry now repopulates the cross-request store on success, so sibling workers no longer thunder the credential agent during rotation.
 - `forceFresh=true` reliably bypasses caching for `credential_provider=default`, which previously was undermined by the SDK's internal `memoize` wrapping inside `defaultProvider()`.
 

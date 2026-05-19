@@ -459,6 +459,39 @@ class IamPostgresConnectorTest extends TestCase
         Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
     }
 
+    public function test_caused_by_lost_connection_returns_false_for_auth_rejection(): void
+    {
+        $connector = $this->makeConnector(
+            $this->createMock(RdsTokenProvider::class),
+            attempts: [],
+        );
+
+        $ref = new \ReflectionMethod($connector, 'causedByLostConnection');
+        $ref->setAccessible(true);
+
+        $authRejection = $this->pgAuthRejection('28P01');
+        $this->assertFalse($ref->invoke($connector, $authRejection));
+    }
+
+    public function test_caused_by_lost_connection_delegates_to_parent_for_non_auth(): void
+    {
+        $connector = $this->makeConnector(
+            $this->createMock(RdsTokenProvider::class),
+            attempts: [],
+        );
+
+        $ref = new \ReflectionMethod($connector, 'causedByLostConnection');
+        $ref->setAccessible(true);
+
+        $lostConnection = new PDOException('SQLSTATE[08006] [7] could not connect to server: Connection refused Is the server running on host');
+        $lostConnection->errorInfo = ['08006', 7, 'server closed the connection unexpectedly'];
+        $this->assertTrue($ref->invoke($connector, $lostConnection));
+
+        $unrelated = new PDOException('permission denied');
+        $unrelated->errorInfo = ['42501', 7, 'permission denied for table users'];
+        $this->assertFalse($ref->invoke($connector, $unrelated));
+    }
+
     private function pgAuthRejection(string $sqlstate = '28000', string $msg = 'invalid password'): PDOException
     {
         $e = new PDOException("SQLSTATE[$sqlstate]: $msg");

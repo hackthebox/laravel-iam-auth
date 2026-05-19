@@ -60,6 +60,14 @@ trait InjectsIamToken
         }
     }
 
+    protected function causedByLostConnection(\Throwable $e): bool
+    {
+        if ($e instanceof PDOException && $this->isAuthRejection($e)) {
+            return false;
+        }
+        return parent::causedByLostConnection($e);
+    }
+
     private function isAuthRejection(PDOException $e): bool
     {
         $sqlstate = (string) ($e->errorInfo[0] ?? '');
