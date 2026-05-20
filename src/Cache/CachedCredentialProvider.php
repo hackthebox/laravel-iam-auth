@@ -7,6 +7,7 @@ use Aws\Credentials\CredentialsInterface;
 use Closure;
 use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Promise\PromiseInterface;
+use Illuminate\Support\Facades\Log;
 
 final class CachedCredentialProvider
 {
@@ -34,6 +35,13 @@ final class CachedCredentialProvider
         }
 
         return ($this->base)()->then(function (CredentialsInterface $creds) {
+            if ($creds->isExpired()) {
+                $this->logExpiredOnArrival($creds);
+                throw new \RuntimeException(
+                    'iam-auth: credential provider returned already-expired credentials'
+                );
+            }
+
             $expiration = $creds->getExpiration();
             if ($expiration !== null) {
                 $ttl = $expiration - time();
@@ -69,6 +77,17 @@ final class CachedCredentialProvider
             'cred_expires_in_s' => $expiration !== null ? ((int) $expiration) - time() : null,
             'cred_access_key_prefix' => $accessKey !== null ? substr($accessKey, 0, 8) : null,
         ];
+    }
+
+    private function logExpiredOnArrival(CredentialsInterface $credentials): void
+    {
+        $expiration = $credentials->getExpiration();
+        $accessKey = $credentials->getAccessKeyId();
+
+        Log::warning('iam-auth.credentials-expired-on-arrival', [
+            'cred_access_key_prefix' => $accessKey ? substr($accessKey, 0, 8) : null,
+            'expired_for_s' => $expiration !== null ? time() - ((int) $expiration) : null,
+        ]);
     }
 
     private function needsRefresh(CredentialsInterface $creds): bool

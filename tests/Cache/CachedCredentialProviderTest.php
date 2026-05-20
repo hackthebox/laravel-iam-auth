@@ -198,8 +198,10 @@ class CachedCredentialProviderTest extends TestCase
         $this->assertSame('AKIASTATIC', $result->getAccessKeyId());
     }
 
-    public function test_does_not_write_to_store_when_credentials_already_expired(): void
+    public function test_throws_and_logs_when_base_returns_already_expired_credentials(): void
     {
+        \Illuminate\Support\Facades\Log::spy();
+
         $store = $this->createMock(\Aws\CacheInterface::class);
         $store->expects($this->never())->method('set');
         $store->method('get')->willReturn(null);
@@ -209,9 +211,19 @@ class CachedCredentialProviderTest extends TestCase
 
         $provider = new \Hackthebox\IamAuth\Cache\CachedCredentialProvider($base, $store, 'k');
 
-        $result = $provider()->wait();
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('iam-auth: credential provider returned already-expired credentials');
 
-        $this->assertSame('AKIAEXPIRED', $result->getAccessKeyId());
+        try {
+            $provider()->wait();
+        } finally {
+            \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
+                ->with('iam-auth.credentials-expired-on-arrival', \Mockery::on(function ($payload) {
+                    return $payload['cred_access_key_prefix'] === 'AKIAEXPI'
+                        && $payload['expired_for_s'] >= 1;
+                }))
+                ->once();
+        }
     }
 
     private function fresh(string $accessKey, int $ttl = 3600): CredentialsInterface

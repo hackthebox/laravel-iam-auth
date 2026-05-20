@@ -152,7 +152,7 @@ IAM auth tokens are valid for 15 minutes and are generated fresh on each databas
 
 ## Defensive Behavior
 
-**Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `AwsCredentialCacheStore::set()` throws a `RuntimeException` instead of caching them for use by the SigV4 signer, and emits a `Log::warning` under the channel `iam-auth.credentials-expired-on-arrival` for operator visibility.
+**Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `CachedCredentialProvider` emits a `Log::warning` under the channel `iam-auth.credentials-expired-on-arrival` and throws a `RuntimeException` before the credentials reach the SigV4 signer. The same guard also lives in `AwsCredentialCacheStore::set()` as defense-in-depth against any external code writing expired credentials directly into the cache.
 
 **Auth rejection triggers a single retry with fresh credentials.** Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) triggers the following recovery sequence:
 
