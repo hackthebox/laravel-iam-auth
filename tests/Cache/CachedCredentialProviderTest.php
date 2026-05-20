@@ -182,6 +182,38 @@ class CachedCredentialProviderTest extends TestCase
         $this->assertEqualsWithDelta(1200, $snapshot['cred_expires_in_s'], 2);
     }
 
+    public function test_does_not_write_to_store_when_credentials_have_no_expiration(): void
+    {
+        $store = $this->createMock(\Aws\CacheInterface::class);
+        $store->expects($this->never())->method('set');
+        $store->method('get')->willReturn(null);
+
+        $staticCreds = new \Aws\Credentials\Credentials('AKIASTATIC', 'secret');
+        $base = fn () => \GuzzleHttp\Promise\Create::promiseFor($staticCreds);
+
+        $provider = new \Hackthebox\IamAuth\Cache\CachedCredentialProvider($base, $store, 'k');
+
+        $result = $provider()->wait();
+
+        $this->assertSame('AKIASTATIC', $result->getAccessKeyId());
+    }
+
+    public function test_does_not_write_to_store_when_credentials_already_expired(): void
+    {
+        $store = $this->createMock(\Aws\CacheInterface::class);
+        $store->expects($this->never())->method('set');
+        $store->method('get')->willReturn(null);
+
+        $expired = new \Aws\Credentials\Credentials('AKIAEXPIRED', 'secret', null, time() - 60);
+        $base = fn () => \GuzzleHttp\Promise\Create::promiseFor($expired);
+
+        $provider = new \Hackthebox\IamAuth\Cache\CachedCredentialProvider($base, $store, 'k');
+
+        $result = $provider()->wait();
+
+        $this->assertSame('AKIAEXPIRED', $result->getAccessKeyId());
+    }
+
     private function fresh(string $accessKey, int $ttl = 3600): CredentialsInterface
     {
         return new Credentials($accessKey, 'secret', null, time() + $ttl);

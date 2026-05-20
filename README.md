@@ -112,7 +112,7 @@ The package config (`config/iam-auth.php`):
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
 | `credential_provider` | `default` | AWS credential provider for all SDK operations (S3, SQS, RDS, etc.). Override with `IAM_AUTH_CREDENTIAL_PROVIDER` env. Supported: `default`, `environment`, `ecs`, `web_identity`, `instance_profile`, `sso`, `ini`. |
 | `cache_store` | `null` | Laravel cache store for caching resolved AWS credentials when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. Override with `IAM_AUTH_CACHE_STORE` env. |
-| `debug` | `false` | When `true`, emits verbose debug logging of credential and token cache state on every `getToken` call. High log volume; intended for short investigation soaks only. Override with `IAM_AUTH_DEBUG` env. |
+| `debug` | `false` | When `true`, emits a verbose `iam-auth.token-access` debug log on every `getToken` call, including `host`, `port`, `username`, `region`, `force_fresh`, and `access_key_prefix` (first 8 characters of the AccessKeyId). High log volume; intended for short investigation soaks only. Override with `IAM_AUTH_DEBUG` env. |
 | `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Override with `IAM_AUTH_PGSQL_SSLMODE` env. |
 | `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `IAM_AUTH_SSL_CA_PATH` env. |
 
@@ -213,9 +213,11 @@ The agent's internal cache can lag behind server-side session revocation. No cli
 
 RDS speaks the database wire protocol, so auth rejections arrive as `PDOException`, never as AWS SDK exceptions. The SDK's credential-refresh retry cannot apply. The connector-layer retry in `InjectsIamToken` is the correct place for the equivalent recovery logic.
 
-## Migrating from v1
+## Migrating from v2 to v3
 
-v2 is a breaking change with the following migration steps:
+If you are on v1, follow the v1 → v2 migration notes in the [v2.x branch README](https://github.com/hackthebox/laravel-iam-auth/blob/main-v2/README.md) first, then return here.
+
+v3 is a breaking change from v2 with the following migration steps:
 
 1. Update `composer.json` to require `^3.0`.
 2. Remove `cache_ttl` and `credentials_expiry_buffer` from any `config/iam-auth.php` overrides. The RDS token cache is gone (tokens are signed per call); credential cache expiry is governed by the AWS SDK's standard `Aws\CacheInterface` contract.

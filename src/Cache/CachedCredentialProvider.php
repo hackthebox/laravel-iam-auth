@@ -35,8 +35,12 @@ final class CachedCredentialProvider
 
         return ($this->base)()->then(function (CredentialsInterface $creds) {
             $expiration = $creds->getExpiration();
-            $ttl = $expiration === null ? 0 : $expiration - time();
-            $this->store->set($this->cacheKey, $creds, $ttl);
+            if ($expiration !== null) {
+                $ttl = $expiration - time();
+                if ($ttl > 0) {
+                    $this->store->set($this->cacheKey, $creds, $ttl);
+                }
+            }
             $this->inProcess = $creds;
             return $creds;
         });
