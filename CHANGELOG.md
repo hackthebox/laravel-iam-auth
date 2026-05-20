@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-05-18
+
+### Fixed
+
+- RDS auth rejections caused by AWS credentials rotating server-side while a token cache entry signed with the old session was still valid. Previously, every connection in the cache window served the dead token until eviction (could be hours). Token cache entries now carry a `sig_kid` fingerprint (truncated SHA-256 of `AccessKeyId + SecurityToken`); on read, the package compares against the current credentials' fingerprint and regenerates the token on mismatch.
+- `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` with non-numeric or negative values silently coerced to 0, disabling the buffer. Invalid values now fall back to the package default with a boot-time `Log::warning`.
+- Auth-rejection detection switched from locale-sensitive message substrings to structured error codes (`errorInfo[0]` SQLSTATE class 28 for PostgreSQL, `errorInfo[1] === 1045` for MySQL/MariaDB).
+
+### Added
+
+- `iam-auth.credentials_expiry_buffer` config key and `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` env var (default 10s) for tuning how aggressively cached credentials are evicted before their stated expiration.
+- `iam-auth.rds-auth-rejected` warning channel, fires unconditionally on any RDS auth rejection, carrying the cached credential state at the moment of rejection. Covers MySQL/MariaDB native code 1045 and PostgreSQL SQLSTATE class 28.
+- `iam-auth.credentials-expired-on-arrival` warning channel for the rare case when the SDK provider returns already-expired credentials.
+- Opt-in `IAM_AUTH_DEBUG=true` enables per-`getToken` debug trace via the `iam-auth.token-access` log channel.
+- PostgreSQL connector now participates in auth-rejection observability alongside MySQL/MariaDB.
+
+### Changed
+
+- Credentials with `null` expiration are no longer cached. Previously stored with an arbitrary 3600s TTL despite the unknown lifetime.
+- Default `credentials_expiry_buffer` lowered from a hardcoded 60s to a configurable 10s. With `sig_kid` rotation detection now the primary defense, a smaller buffer is appropriate and avoids forcing an agent hit during the last seconds of every short session cycle.
+- Auth-rejection warning channel renamed from `iam-auth.rds-rejected-1045` to `iam-auth.rds-auth-rejected` (the previous name was MySQL-specific; the new name covers PostgreSQL too).
+- Token cache reads / writes through the AWS SDK credential resolution path now resolve credentials once per `getToken` call (was: twice on cache miss, once via `currentSigKid` and once inside `AuthTokenGenerator::createToken`). Eliminates a small race window where rotation between the two resolves could store an inconsistent `sig_kid`.
+
 ## [2.0.0] - 2026-03-26
 
 ### Added
@@ -66,7 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for PHP 8.2, 8.3, and 8.4
 - Support for Laravel 11 and 12
 
-[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.1...v1.0.2
