@@ -4,7 +4,9 @@ namespace Hackthebox\IamAuth\Tests;
 
 use Aws\CacheInterface;
 use Aws\Credentials\Credentials;
+use Aws\Credentials\CredentialsInterface;
 use Aws\Laravel\AwsServiceProvider;
+use Aws\Rds\AuthTokenGenerator;
 use GuzzleHttp\Promise\Create;
 use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
@@ -12,6 +14,7 @@ use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Support\Facades\Log;
 use Mockery;
 use Orchestra\Testbench\TestCase;
+use RuntimeException;
 
 class RdsTokenProviderTest extends TestCase
 {
@@ -123,6 +126,39 @@ class RdsTokenProviderTest extends TestCase
                     && $payload['access_key_prefix'] === 'AKIADEBU';
             }))
             ->once();
+    }
+
+    public function test_generate_token_wraps_underlying_exception_with_context(): void
+    {
+        $creds = new Credentials('AKIAWRAP', 'secret', null, time() + 3600);
+        $underlying = new RuntimeException('signing error');
+
+        $rds = new class($this->makeProvider($creds), $underlying) extends RdsTokenProvider {
+            public function __construct(
+                CachedCredentialProvider $provider,
+                private readonly RuntimeException $boom,
+            ) {
+                parent::__construct($provider);
+            }
+
+            protected function createAuthTokenGenerator(CredentialsInterface $credentials): AuthTokenGenerator
+            {
+                $gen = Mockery::mock(AuthTokenGenerator::class);
+                $gen->shouldReceive('createToken')->andThrow($this->boom);
+                return $gen;
+            }
+        };
+
+        try {
+            $rds->getToken('db.example.aws', 3306, 'iam_user', 'eu-central-1');
+            $this->fail('expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertSame(
+                'Failed to generate RDS IAM auth token for iam_user@db.example.aws:3306 in region eu-central-1: signing error',
+                $e->getMessage()
+            );
+            $this->assertSame($underlying, $e->getPrevious());
+        }
     }
 
     public function test_debug_log_suppressed_when_debug_config_false(): void
