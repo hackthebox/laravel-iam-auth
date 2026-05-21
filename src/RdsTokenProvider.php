@@ -2,6 +2,7 @@
 
 namespace Hackthebox\IamAuth;
 
+use Aws\Credentials\Credentials;
 use Aws\Credentials\CredentialsInterface;
 use Aws\Rds\AuthTokenGenerator;
 use Closure;
@@ -97,7 +98,8 @@ class RdsTokenProvider
 
     protected function createAuthTokenGenerator(CredentialsInterface $credentials): AuthTokenGenerator
     {
-        return new AuthTokenGenerator(fn () => $credentials);
+        /** @var Credentials $credentials */
+        return new AuthTokenGenerator($credentials);
     }
 
     protected function apcuAvailable(): bool
