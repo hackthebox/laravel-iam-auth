@@ -2,6 +2,7 @@
 
 namespace Hackthebox\IamAuth;
 
+use Aws\Credentials\Credentials;
 use Aws\Credentials\CredentialsInterface;
 use Aws\Rds\AuthTokenGenerator;
 use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
@@ -60,6 +61,7 @@ class RdsTokenProvider
 
     protected function createAuthTokenGenerator(CredentialsInterface $credentials): AuthTokenGenerator
     {
+        /** @var Credentials $credentials */
         return new AuthTokenGenerator($credentials);
     }
 
