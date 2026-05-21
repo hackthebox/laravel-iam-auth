@@ -8,6 +8,7 @@ use Closure;
 use GuzzleHttp\Promise\Create;
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
 final class CachedCredentialProvider
 {
@@ -37,7 +38,7 @@ final class CachedCredentialProvider
         return ($this->base)()->then(function (CredentialsInterface $creds) {
             if ($creds->isExpired()) {
                 $this->logExpiredOnArrival($creds);
-                throw new \RuntimeException(
+                throw new RuntimeException(
                     'iam-auth: credential provider returned already-expired credentials'
                 );
             }
@@ -86,7 +87,7 @@ final class CachedCredentialProvider
 
         Log::warning('iam-auth.credentials-expired-on-arrival', [
             'cred_access_key_prefix' => $accessKey ? substr($accessKey, 0, 8) : null,
-            'expired_for_s' => $expiration !== null ? time() - ((int) $expiration) : null,
+            'expired_for_s' => $expiration !== null ? time() - $expiration : null,
         ]);
     }
 

@@ -4,10 +4,13 @@ namespace Hackthebox\IamAuth\Tests;
 
 use Aws\CacheInterface;
 use Aws\Credentials\Credentials;
+use Aws\Laravel\AwsServiceProvider;
+use GuzzleHttp\Promise\Create;
 use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Support\Facades\Log;
+use Mockery;
 use Orchestra\Testbench\TestCase;
 
 class RdsTokenProviderTest extends TestCase
@@ -15,7 +18,7 @@ class RdsTokenProviderTest extends TestCase
     protected function getPackageProviders($app): array
     {
         return [
-            \Aws\Laravel\AwsServiceProvider::class,
+            AwsServiceProvider::class,
             IamAuthServiceProvider::class,
         ];
     }
@@ -38,7 +41,7 @@ class RdsTokenProviderTest extends TestCase
         $baseCalls = 0;
         $base = function () use (&$baseCalls, $creds) {
             $baseCalls++;
-            return \GuzzleHttp\Promise\Create::promiseFor($creds);
+            return Create::promiseFor($creds);
         };
 
         $removeCalls = 0;
@@ -61,7 +64,7 @@ class RdsTokenProviderTest extends TestCase
     public function test_get_token_without_force_fresh_does_not_invalidate(): void
     {
         $creds = new Credentials('AKIA', 'secret', null, time() + 3600);
-        $base = static fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
+        $base = static fn () => Create::promiseFor($creds);
 
         $store = $this->createMock(CacheInterface::class);
         $store->method('get')->willReturn(null);
@@ -76,7 +79,7 @@ class RdsTokenProviderTest extends TestCase
     public function test_credential_snapshot_delegates_to_cached_provider(): void
     {
         $creds = new Credentials('AKIASNAP123', 'secret', null, time() + 1200);
-        $base = static fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
+        $base = static fn () => Create::promiseFor($creds);
         $store = $this->createMock(CacheInterface::class);
         $store->method('get')->willReturn(null);
 
@@ -101,7 +104,7 @@ class RdsTokenProviderTest extends TestCase
         $rds->getToken('h', 3306, 'u', 'r');
 
         Log::shouldHaveReceived('debug')
-            ->with('iam-auth.token-access', \Mockery::on(function ($payload) {
+            ->with('iam-auth.token-access', Mockery::on(function ($payload) {
                 return $payload['host'] === 'h'
                     && $payload['port'] === 3306
                     && $payload['force_fresh'] === false
@@ -125,7 +128,7 @@ class RdsTokenProviderTest extends TestCase
 
     private function makeProvider(Credentials $creds): CachedCredentialProvider
     {
-        $base = static fn () => \GuzzleHttp\Promise\Create::promiseFor($creds);
+        $base = static fn () => Create::promiseFor($creds);
         $store = $this->createMock(CacheInterface::class);
         $store->method('get')->willReturn(null);
 

@@ -4,6 +4,7 @@ namespace Hackthebox\IamAuth;
 
 use Illuminate\Contracts\Cache\Repository;
 use RuntimeException;
+use Throwable;
 
 trait ValidatesCacheStore
 {
@@ -27,7 +28,7 @@ trait ValidatesCacheStore
     {
         try {
             return cache()->store($store);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             throw new RuntimeException(
                 "IAM auth cache store '$store' is not configured. "
                 ."Check the 'cache_store' value in config/iam-auth.php.",

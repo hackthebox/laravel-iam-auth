@@ -2,6 +2,7 @@
 
 namespace Hackthebox\IamAuth\Tests\Connectors;
 
+use Aws\Exception\CredentialsException;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
@@ -12,6 +13,9 @@ use Mockery;
 use Orchestra\Testbench\TestCase;
 use PDO;
 use PDOException;
+use ReflectionMethod;
+use RuntimeException;
+use SensitiveParameter;
 
 class IamPostgresConnectorTest extends TestCase
 {
@@ -438,7 +442,7 @@ class IamPostgresConnectorTest extends TestCase
         $tokenProvider = $this->createMock(RdsTokenProvider::class);
         $tokenProvider->method('getToken')->willReturnCallback(function ($h, $p, $u, $r, $force = false) {
             if ($force) {
-                throw new \Aws\Exception\CredentialsException('agent unreachable');
+                throw new CredentialsException('agent unreachable');
             }
             return 'token';
         });
@@ -451,7 +455,7 @@ class IamPostgresConnectorTest extends TestCase
         try {
             $connector->createConnection('pgsql:host=h;dbname=d', $this->iamConfig(), []);
             $this->fail('expected CredentialsException');
-        } catch (\Aws\Exception\CredentialsException) {
+        } catch (CredentialsException) {
         }
 
         Log::shouldHaveReceived('warning')
@@ -466,7 +470,7 @@ class IamPostgresConnectorTest extends TestCase
             attempts: [],
         );
 
-        $ref = new \ReflectionMethod($connector, 'causedByLostConnection');
+        $ref = new ReflectionMethod($connector, 'causedByLostConnection');
         $ref->setAccessible(true);
 
         $authRejection = $this->pgAuthRejection('28P01');
@@ -480,7 +484,7 @@ class IamPostgresConnectorTest extends TestCase
             attempts: [],
         );
 
-        $ref = new \ReflectionMethod($connector, 'causedByLostConnection');
+        $ref = new ReflectionMethod($connector, 'causedByLostConnection');
         $ref->setAccessible(true);
 
         $lostConnection = new PDOException('SQLSTATE[08006] [7] could not connect to server: Connection refused Is the server running on host');
@@ -515,7 +519,7 @@ class IamPostgresConnectorTest extends TestCase
                 $this->attempts = $attempts;
             }
 
-            protected function createPdoConnection($dsn, $username, #[\SensitiveParameter] $password, $options): PDO
+            protected function createPdoConnection($dsn, $username, #[SensitiveParameter] $password, $options): PDO
             {
                 $entry = $this->attempts[$this->callIdx++] ?? null;
                 if ($entry instanceof PDOException) {
@@ -524,7 +528,7 @@ class IamPostgresConnectorTest extends TestCase
                 if ($entry instanceof PDO) {
                     return $entry;
                 }
-                throw new \RuntimeException('no attempt seeded at index '.($this->callIdx - 1));
+                throw new RuntimeException('no attempt seeded at index '.($this->callIdx - 1));
             }
         };
     }

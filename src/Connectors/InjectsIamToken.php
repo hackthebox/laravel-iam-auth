@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use PDO;
 use PDOException;
+use Throwable;
 
 trait InjectsIamToken
 {
@@ -60,7 +61,7 @@ trait InjectsIamToken
         }
     }
 
-    protected function causedByLostConnection(\Throwable $e): bool
+    protected function causedByLostConnection(Throwable $e): bool
     {
         if ($e instanceof PDOException && $this->isAuthRejection($e)) {
             return false;

@@ -2,6 +2,9 @@
 
 namespace Hackthebox\IamAuth\Tests;
 
+use Aws\CacheInterface;
+use Aws\Laravel\AwsServiceProvider;
+use GuzzleHttp\Promise\PromiseInterface;
 use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
 use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
@@ -11,13 +14,14 @@ use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 
 class IamAuthServiceProviderTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
         return [
-            \Aws\Laravel\AwsServiceProvider::class,
+            AwsServiceProvider::class,
             IamAuthServiceProvider::class,
         ];
     }
@@ -90,7 +94,7 @@ class IamAuthServiceProviderTest extends TestCase
 
         $this->app->forgetInstance(CachedCredentialProvider::class);
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("Unsupported IAM auth credential provider 'banana'");
 
         $this->app->make(CachedCredentialProvider::class);
@@ -98,7 +102,7 @@ class IamAuthServiceProviderTest extends TestCase
 
     public function test_binds_aws_cache_interface_to_credential_cache_store(): void
     {
-        $store = app(\Aws\CacheInterface::class);
+        $store = app(CacheInterface::class);
         $this->assertInstanceOf(AwsCredentialCacheStore::class, $store);
     }
 
@@ -127,7 +131,7 @@ class IamAuthServiceProviderTest extends TestCase
         $this->assertIsCallable($resolved);
 
         $promise = $resolved();
-        $this->assertInstanceOf(\GuzzleHttp\Promise\PromiseInterface::class, $promise);
+        $this->assertInstanceOf(PromiseInterface::class, $promise);
     }
 
     public function test_ecs_credential_provider_does_not_crash_when_wrapped(): void

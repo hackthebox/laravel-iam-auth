@@ -4,6 +4,8 @@ namespace Hackthebox\IamAuth\Tests\Connectors;
 
 use Aws\CacheInterface;
 use Aws\Credentials\Credentials;
+use Aws\Credentials\CredentialsInterface;
+use Aws\Exception\CredentialsException;
 use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
 use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
@@ -15,6 +17,9 @@ use Mockery;
 use Orchestra\Testbench\TestCase;
 use PDO;
 use PDOException;
+use ReflectionMethod;
+use RuntimeException;
+use SensitiveParameter;
 
 class IamMariaDbConnectorTest extends TestCase
 {
@@ -232,7 +237,7 @@ class IamMariaDbConnectorTest extends TestCase
         $tokenProvider = $this->createMock(RdsTokenProvider::class);
         $tokenProvider->method('getToken')->willReturnCallback(function ($h, $p, $u, $r, $force = false) {
             if ($force) {
-                throw new \Aws\Exception\CredentialsException('agent unreachable');
+                throw new CredentialsException('agent unreachable');
             }
             return 'token';
         });
@@ -245,7 +250,7 @@ class IamMariaDbConnectorTest extends TestCase
         try {
             $connector->createConnection('mysql:host=h;dbname=d', $this->iamConfig(), []);
             $this->fail('expected CredentialsException');
-        } catch (\Aws\Exception\CredentialsException) {
+        } catch (CredentialsException) {
         }
 
         Log::shouldHaveReceived('warning')
@@ -260,7 +265,7 @@ class IamMariaDbConnectorTest extends TestCase
             attempts: [],
         );
 
-        $ref = new \ReflectionMethod($connector, 'causedByLostConnection');
+        $ref = new ReflectionMethod($connector, 'causedByLostConnection');
         $ref->setAccessible(true);
 
         $authRejection = $this->mariaAuthRejection();
@@ -274,7 +279,7 @@ class IamMariaDbConnectorTest extends TestCase
             attempts: [],
         );
 
-        $ref = new \ReflectionMethod($connector, 'causedByLostConnection');
+        $ref = new ReflectionMethod($connector, 'causedByLostConnection');
         $ref->setAccessible(true);
 
         $lostConnection = new PDOException('SQLSTATE[HY000] [2006] MySQL server has gone away');
@@ -309,7 +314,7 @@ class IamMariaDbConnectorTest extends TestCase
                 $this->attempts = $attempts;
             }
 
-            protected function createPdoConnection($dsn, $username, #[\SensitiveParameter] $password, $options): PDO
+            protected function createPdoConnection($dsn, $username, #[SensitiveParameter] $password, $options): PDO
             {
                 $entry = $this->attempts[$this->callIdx++] ?? null;
                 if ($entry instanceof PDOException) {
@@ -318,7 +323,7 @@ class IamMariaDbConnectorTest extends TestCase
                 if ($entry instanceof PDO) {
                     return $entry;
                 }
-                throw new \RuntimeException('no attempt seeded at index '.($this->callIdx - 1));
+                throw new RuntimeException('no attempt seeded at index '.($this->callIdx - 1));
             }
         };
     }
@@ -366,7 +371,7 @@ class IamMariaDbConnectorTest extends TestCase
     private function stubCacheStore(Credentials $seed): AwsCredentialCacheStore
     {
         return new class($seed) extends AwsCredentialCacheStore {
-            public function __construct(private Credentials $seed)
+            public function __construct(private readonly Credentials $seed)
             {
             }
 
@@ -385,7 +390,7 @@ class IamMariaDbConnectorTest extends TestCase
                 return $this->seed;
             }
 
-            public function peek(string $key): ?\Aws\Credentials\CredentialsInterface
+            public function peek(string $key): ?CredentialsInterface
             {
                 return $this->seed;
             }

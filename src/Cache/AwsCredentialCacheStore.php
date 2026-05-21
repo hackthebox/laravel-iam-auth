@@ -6,6 +6,8 @@ use Aws\CacheInterface;
 use Aws\Credentials\CredentialsInterface;
 use Hackthebox\IamAuth\ValidatesCacheStore;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
+use Throwable;
 
 class AwsCredentialCacheStore implements CacheInterface
 {
@@ -29,7 +31,7 @@ class AwsCredentialCacheStore implements CacheInterface
 
         try {
             return $this->resolveCacheStore($store)->get($key);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return null;
         }
     }
@@ -38,7 +40,7 @@ class AwsCredentialCacheStore implements CacheInterface
     {
         if ($value instanceof CredentialsInterface && $value->isExpired()) {
             $this->logExpiredOnArrival($value);
-            throw new \RuntimeException(
+            throw new RuntimeException(
                 'iam-auth: credential provider returned already-expired credentials'
             );
         }
@@ -57,7 +59,7 @@ class AwsCredentialCacheStore implements CacheInterface
 
         try {
             $this->resolveCacheStore($store)->put($key, $value, $ttl);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('iam-auth.cache-store-write-failed', [
                 'store' => $store,
                 'message' => $e->getMessage(),
@@ -72,7 +74,7 @@ class AwsCredentialCacheStore implements CacheInterface
 
         Log::warning('iam-auth.credentials-expired-on-arrival', [
             'cred_access_key_prefix' => $accessKey ? substr($accessKey, 0, 8) : null,
-            'expired_for_s' => $expiration !== null ? time() - ((int) $expiration) : null,
+            'expired_for_s' => $expiration !== null ? time() - $expiration : null,
         ]);
     }
 
@@ -92,7 +94,7 @@ class AwsCredentialCacheStore implements CacheInterface
 
         try {
             $this->resolveCacheStore($store)->forget($key);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             // Best-effort cleanup. Sibling workers will retry on their own auth rejections.
         }
     }
@@ -118,7 +120,7 @@ class AwsCredentialCacheStore implements CacheInterface
         try {
             $this->assertSafeCacheStore($store);
             return $this->resolveCacheStore($store)->get($key);
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return null;
         }
     }
@@ -132,7 +134,7 @@ class AwsCredentialCacheStore implements CacheInterface
         return [
             'cred_present' => $creds !== null,
             'cred_is_expired' => $creds?->isExpired(),
-            'cred_expires_in_s' => $expiration !== null ? ((int) $expiration) - time() : null,
+            'cred_expires_in_s' => $expiration !== null ? $expiration - time() : null,
             'cred_access_key_prefix' => $accessKey !== null ? substr($accessKey, 0, 8) : null,
         ];
     }

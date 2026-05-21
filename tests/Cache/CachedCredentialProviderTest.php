@@ -6,8 +6,13 @@ use Aws\CacheInterface;
 use Aws\Credentials\Credentials;
 use Aws\Credentials\CredentialsInterface;
 use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Promise\PromiseInterface;
 use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
+use Illuminate\Support\Facades\Log;
+use Mockery;
 use Orchestra\Testbench\TestCase;
+use ReflectionProperty;
+use RuntimeException;
 
 class CachedCredentialProviderTest extends TestCase
 {
@@ -37,7 +42,7 @@ class CachedCredentialProviderTest extends TestCase
     {
         $creds = $this->fresh('AKIASTORE');
         $base = function () {
-            throw new \RuntimeException('base must not be called when store has fresh creds');
+            throw new RuntimeException('base must not be called when store has fresh creds');
         };
 
         $store = $this->createMock(CacheInterface::class);
@@ -132,11 +137,11 @@ class CachedCredentialProviderTest extends TestCase
     {
         $creds = $this->fresh('AKIAINVK');
         $base = new class($creds) {
-            public function __construct(private CredentialsInterface $creds)
+            public function __construct(private readonly CredentialsInterface $creds)
             {
             }
 
-            public function __invoke()
+            public function __invoke(): PromiseInterface
             {
                 return Create::promiseFor($this->creds);
             }
@@ -184,14 +189,14 @@ class CachedCredentialProviderTest extends TestCase
 
     public function test_does_not_write_to_store_when_credentials_have_no_expiration(): void
     {
-        $store = $this->createMock(\Aws\CacheInterface::class);
+        $store = $this->createMock(CacheInterface::class);
         $store->expects($this->never())->method('set');
         $store->method('get')->willReturn(null);
 
-        $staticCreds = new \Aws\Credentials\Credentials('AKIASTATIC', 'secret');
-        $base = fn () => \GuzzleHttp\Promise\Create::promiseFor($staticCreds);
+        $staticCreds = new Credentials('AKIASTATIC', 'secret');
+        $base = fn () => Create::promiseFor($staticCreds);
 
-        $provider = new \Hackthebox\IamAuth\Cache\CachedCredentialProvider($base, $store, 'k');
+        $provider = new CachedCredentialProvider($base, $store, 'k');
 
         $result = $provider()->wait();
 
@@ -200,25 +205,25 @@ class CachedCredentialProviderTest extends TestCase
 
     public function test_throws_and_logs_when_base_returns_already_expired_credentials(): void
     {
-        \Illuminate\Support\Facades\Log::spy();
+        Log::spy();
 
-        $store = $this->createMock(\Aws\CacheInterface::class);
+        $store = $this->createMock(CacheInterface::class);
         $store->expects($this->never())->method('set');
         $store->method('get')->willReturn(null);
 
-        $expired = new \Aws\Credentials\Credentials('AKIAEXPIRED', 'secret', null, time() - 60);
-        $base = fn () => \GuzzleHttp\Promise\Create::promiseFor($expired);
+        $expired = new Credentials('AKIAEXPIRED', 'secret', null, time() - 60);
+        $base = fn () => Create::promiseFor($expired);
 
-        $provider = new \Hackthebox\IamAuth\Cache\CachedCredentialProvider($base, $store, 'k');
+        $provider = new CachedCredentialProvider($base, $store, 'k');
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage('iam-auth: credential provider returned already-expired credentials');
 
         try {
             $provider()->wait();
         } finally {
-            \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
-                ->with('iam-auth.credentials-expired-on-arrival', \Mockery::on(function ($payload) {
+            Log::shouldHaveReceived('warning')
+                ->with('iam-auth.credentials-expired-on-arrival', Mockery::on(function ($payload) {
                     return $payload['cred_access_key_prefix'] === 'AKIAEXPI'
                         && $payload['expired_for_s'] >= 1;
                 }))
@@ -233,7 +238,7 @@ class CachedCredentialProviderTest extends TestCase
 
     private function inProcess(CachedCredentialProvider $provider): ?CredentialsInterface
     {
-        $ref = new \ReflectionProperty($provider, 'inProcess');
+        $ref = new ReflectionProperty($provider, 'inProcess');
         return $ref->getValue($provider);
     }
 }
