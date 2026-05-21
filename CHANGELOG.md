@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Override `causedByLostConnection` in `InjectsIamToken` to skip auth-rejection errors (SQLSTATE 28 / native 1045). Prevents Laravel's stock lost-connection retry from silently re-attempting the connect with a stale token before our trait's retry path can invalidate credentials.
 - The auth-rejection retry now repopulates the cross-request store on success, so sibling workers no longer thunder the credential agent during rotation.
 - `forceFresh=true` reliably bypasses caching for `credential_provider=default`, which previously was undermined by the SDK's internal `memoize` wrapping inside `defaultProvider()`.
+- `CachedCredentialProvider::invalidate()` now sets a one-shot store-bypass flag in addition to calling `store->remove()`. Guarantees the next resolve skips the cross-process cache even if the underlying Laravel cache backend silently failed the remove (the store is best-effort by design), so the auth-rejection retry cannot re-sign with the same rejected credentials.
 
 ## [2.0.1] - 2026-05-18
 

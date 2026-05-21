@@ -16,6 +16,8 @@ final class CachedCredentialProvider
 
     private ?CredentialsInterface $inProcess = null;
 
+    private bool $bypassStoreOnce = false;
+
     public function __construct(
         private readonly Closure $base,
         private readonly CacheInterface $store,
@@ -29,11 +31,14 @@ final class CachedCredentialProvider
             return Create::promiseFor($this->inProcess);
         }
 
-        $cached = $this->store->get($this->cacheKey);
-        if ($cached instanceof CredentialsInterface && !$this->needsRefresh($cached)) {
-            $this->inProcess = $cached;
-            return Create::promiseFor($cached);
+        if (!$this->bypassStoreOnce) {
+            $cached = $this->store->get($this->cacheKey);
+            if ($cached instanceof CredentialsInterface && !$this->needsRefresh($cached)) {
+                $this->inProcess = $cached;
+                return Create::promiseFor($cached);
+            }
         }
+        $this->bypassStoreOnce = false;
 
         return ($this->base)()->then(function (CredentialsInterface $creds) {
             if ($creds->isExpired()) {
@@ -58,6 +63,7 @@ final class CachedCredentialProvider
     public function invalidate(): void
     {
         $this->inProcess = null;
+        $this->bypassStoreOnce = true;
         $this->store->remove($this->cacheKey);
     }
 

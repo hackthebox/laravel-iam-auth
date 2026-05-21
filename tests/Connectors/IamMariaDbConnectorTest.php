@@ -6,6 +6,7 @@ use Aws\CacheInterface;
 use Aws\Credentials\Credentials;
 use Aws\Credentials\CredentialsInterface;
 use Aws\Exception\CredentialsException;
+use GuzzleHttp\Promise\Create;
 use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
 use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
@@ -123,7 +124,14 @@ class IamMariaDbConnectorTest extends TestCase
 
         $cacheStore = $this->stubCacheStore($creds);
         $this->app->instance(CacheInterface::class, $cacheStore);
-        $this->app->forgetInstance(CachedCredentialProvider::class);
+        $this->app->instance(
+            CachedCredentialProvider::class,
+            new CachedCredentialProvider(
+                static fn () => Create::promiseFor($creds),
+                $cacheStore,
+                'iam-auth.credentials',
+            ),
+        );
 
         $tokenProvider = $this->app->make(RdsTokenProvider::class);
 

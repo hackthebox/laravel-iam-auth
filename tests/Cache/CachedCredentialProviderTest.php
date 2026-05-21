@@ -133,6 +133,65 @@ class CachedCredentialProviderTest extends TestCase
         $this->assertSame(2, $baseCalls);
     }
 
+    public function test_invalidate_then_invoke_bypasses_stale_store_when_remove_silently_failed(): void
+    {
+        $stale = $this->fresh('AKIASTALE');
+        $fresh = $this->fresh('AKIANEW');
+
+        $baseCalls = 0;
+        $base = function () use (&$baseCalls, $fresh) {
+            $baseCalls++;
+            return Create::promiseFor($fresh);
+        };
+
+        $store = $this->createMock(CacheInterface::class);
+        $store->expects($this->never())->method('get');
+        $store->method('remove');
+
+        $provider = new CachedCredentialProvider($base, $store, 'k');
+        $provider->invalidate();
+
+        $result = $provider()->wait();
+
+        $this->assertSame($fresh, $result);
+        $this->assertSame(1, $baseCalls);
+        $this->assertNotSame($stale, $result);
+    }
+
+    public function test_bypass_flag_is_consumed_after_one_invocation(): void
+    {
+        $cached = $this->fresh('AKIACACHED');
+        $freshA = $this->fresh('AKIAFRESHA');
+        $freshB = $this->fresh('AKIAFRESHB');
+
+        $baseCalls = 0;
+        $base = function () use (&$baseCalls, $freshA, $freshB) {
+            $baseCalls++;
+            return Create::promiseFor($baseCalls === 1 ? $freshA : $freshB);
+        };
+
+        $getCalls = 0;
+        $store = $this->createMock(CacheInterface::class);
+        $store->method('get')->willReturnCallback(function () use (&$getCalls, $cached) {
+            $getCalls++;
+            return $cached;
+        });
+        $store->method('remove');
+
+        $provider = new CachedCredentialProvider($base, $store, 'k');
+
+        $provider->invalidate();
+        $first = $provider()->wait();
+        $this->assertSame($freshA, $first);
+        $this->assertSame(0, $getCalls, 'invalidate() must skip store on the next invoke');
+
+        $this->clearInProcess($provider);
+        $second = $provider()->wait();
+        $this->assertSame($cached, $second, 'after bypass is consumed, store is read again');
+        $this->assertSame(1, $getCalls);
+        $this->assertSame(1, $baseCalls, 'cached entry from store must satisfy second invoke without calling base');
+    }
+
     public function test_accepts_invokable_class_base(): void
     {
         $creds = $this->fresh('AKIAINVK');
@@ -240,5 +299,11 @@ class CachedCredentialProviderTest extends TestCase
     {
         $ref = new ReflectionProperty($provider, 'inProcess');
         return $ref->getValue($provider);
+    }
+
+    private function clearInProcess(CachedCredentialProvider $provider): void
+    {
+        $ref = new ReflectionProperty($provider, 'inProcess');
+        $ref->setValue($provider, null);
     }
 }
