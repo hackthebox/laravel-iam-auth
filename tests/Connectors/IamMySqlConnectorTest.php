@@ -5,10 +5,14 @@ namespace Hackthebox\IamAuth\Tests\Connectors;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Mockery;
 use Orchestra\Testbench\TestCase;
 use PDO;
+use PDOException;
+use RuntimeException;
+use SensitiveParameter;
 
 class IamMySqlConnectorTest extends TestCase
 {
@@ -312,5 +316,81 @@ class IamMySqlConnectorTest extends TestCase
         ];
 
         $connector->createConnection('mysql:host=my-rds', $config, []);
+    }
+
+    public function test_retry_succeeds_after_auth_rejection_1045(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->exactly(2))
+            ->method('getToken')
+            ->willReturnCallback(function ($h, $p, $u, $r, $force = false) {
+                static $i = 0;
+                $i++;
+                $this->assertSame($i === 2, $force, 'second call must forceFresh, first must not');
+                return $i === 1 ? 'token1' : 'token2';
+            });
+
+        $connector = $this->makeConnector(
+            $tokenProvider,
+            attempts: [$this->mysqlAuthRejection(), $this->createMock(PDO::class)],
+        );
+
+        $pdo = $connector->createConnection('mysql:host=h;dbname=d', $this->iamConfig(), []);
+        $this->assertNotNull($pdo);
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+        Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
+    }
+
+    private function mysqlAuthRejection(string $msg = 'access denied'): PDOException
+    {
+        $e = new PDOException($msg);
+        $e->errorInfo = ['HY000', 1045, $msg];
+        return $e;
+    }
+
+    private function iamConfig(): array
+    {
+        return [
+            'host' => 'my-rds.cluster.us-east-1.rds.amazonaws.com',
+            'port' => 3306,
+            'username' => 'iam_user',
+            'password' => '',
+            'use_iam_auth' => true,
+            'region' => 'us-east-1',
+        ];
+    }
+
+    private function makeConnector(
+        RdsTokenProvider $tokenProvider,
+        array $attempts,
+    ): IamMySqlConnector {
+        return new class($tokenProvider, $attempts) extends IamMySqlConnector {
+            public int $callIdx = 0;
+            public array $attempts;
+
+            public function __construct(
+                RdsTokenProvider $tp,
+                array $attempts,
+            ) {
+                parent::__construct($tp);
+                $this->attempts = $attempts;
+            }
+
+            protected function createPdoConnection($dsn, $username, #[SensitiveParameter] $password, $options): PDO
+            {
+                $entry = $this->attempts[$this->callIdx++] ?? null;
+                if ($entry instanceof PDOException) {
+                    throw $entry;
+                }
+                if ($entry instanceof PDO) {
+                    return $entry;
+                }
+                throw new RuntimeException('no attempt seeded at index '.($this->callIdx - 1));
+            }
+        };
     }
 }
