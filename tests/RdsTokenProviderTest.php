@@ -451,4 +451,20 @@ class RdsTokenProviderTest extends TestCase
 
         $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
     }
+
+    public function test_signs_token_via_real_aws_sdk_without_mocking_generator(): void
+    {
+        config(['iam-auth.cache_store' => null]);
+
+        $credentials = new Credentials('AKIAIOSFODNN7EXAMPLE', 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY', null, time() + 3600);
+        $credentialProvider = fn () => Create::promiseFor($credentials);
+
+        $provider = new RdsTokenProvider($credentialProvider);
+
+        $token = $provider->getToken('my-rds.cluster.us-east-1.rds.amazonaws.com', 3306, 'app_user', 'us-east-1');
+
+        $this->assertStringContainsString('my-rds.cluster.us-east-1.rds.amazonaws.com:3306', $token);
+        $this->assertStringContainsString('DBUser=app_user', $token);
+        $this->assertStringContainsString('X-Amz-Algorithm=AWS4-HMAC-SHA256', $token);
+    }
 }
