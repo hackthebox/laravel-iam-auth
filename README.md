@@ -154,6 +154,8 @@ IAM auth tokens are valid for 15 minutes and are generated fresh on each databas
 
 **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `CachedCredentialProvider` emits a `Log::warning` under the channel `iam-auth.credentials-expired-on-arrival` and throws a `RuntimeException` before the credentials reach the SigV4 signer. The same guard also lives in `AwsCredentialCacheStore::set()` as defense-in-depth against any external code writing expired credentials directly into the cache.
 
+**Cache-backend resilience.** All three cache operations (`get`, `set`, `remove`) treat Laravel cache backend failures as best-effort: transient errors (e.g. Redis temporarily unavailable) are swallowed and logged under `iam-auth.cache-store-write-failed`, so a single backend blip cannot fail user requests even when credentials were resolved successfully. Misconfiguration (an unsafe `cache_store` like `database` or `dynamodb`) still throws loudly via `assertSafeCacheStore` before any operation.
+
 **Auth rejection triggers a single retry with fresh credentials.** Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) triggers the following recovery sequence:
 
 1. Log `iam-auth.rds-auth-rejected` (warning) with the current credential cache snapshot.
@@ -186,6 +188,8 @@ When using IAM roles (IRSA, Pod Identity, instance profiles), the AWS SDK resolv
 This package caches resolved AWS SDK credentials across requests, benefiting **all** AWS SDK calls made by your application (S3, SQS, SES, etc.), not just RDS token generation.
 
 The `cache_store` setting controls AWS credential caching. APCu is always preferred when available.
+
+**Proactive refresh window.** `CachedCredentialProvider` refreshes credentials 60 seconds before their reported expiration to avoid handing the SigV4 signer credentials that may expire mid-request. The constant (`CachedCredentialProvider::REFRESH_WINDOW = 60`) matches the AWS SDK's own `CredentialProvider::memoize()` default. This window is not configurable in v3; the load impact is bounded (one extra fetch per credentials cycle, where the cycle is hours long for STS sessions).
 
 **Important:** Credential caching only applies to AWS clients created through the SDK singleton (e.g. `app('aws')->createS3()`). Clients instantiated directly (`new S3Client([...])`) bypass the singleton and do not benefit from cached credentials. Always resolve clients via the container:
 

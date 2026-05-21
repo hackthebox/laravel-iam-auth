@@ -96,8 +96,10 @@ class AwsCredentialCacheStoreTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function test_set_propagates_throwable_from_laravel_cache(): void
+    public function test_set_swallows_throwable_from_laravel_cache_and_logs_warning(): void
     {
+        \Illuminate\Support\Facades\Log::spy();
+
         $repo = $this->createMock(\Illuminate\Contracts\Cache\Repository::class);
         $repo->method('put')->willThrowException(new \RuntimeException('redis down'));
 
@@ -107,10 +109,16 @@ class AwsCredentialCacheStoreTest extends TestCase
         $store = $this->makeStoreWithFactory(apcuAvailable: false, cacheStore: 'redis', factory: $factory);
         $creds = new \Aws\Credentials\Credentials('AKIATEST', 'secret', null, time() + 3600);
 
-        $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('redis down');
-
         $store->set('test_key', $creds, 3600);
+
+        \Illuminate\Support\Facades\Log::shouldHaveReceived('warning')
+            ->with('iam-auth.cache-store-write-failed', \Mockery::on(function ($payload) {
+                return $payload['store'] === 'redis'
+                    && str_contains($payload['message'], 'redis down');
+            }))
+            ->once();
+
+        $this->addToAssertionCount(1);
     }
 
     public function test_set_with_expired_credentials_logs_warning_and_throws(): void

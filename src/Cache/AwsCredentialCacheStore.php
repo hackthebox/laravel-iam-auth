@@ -54,7 +54,15 @@ class AwsCredentialCacheStore implements CacheInterface
         }
 
         $this->assertSafeCacheStore($store);
-        $this->resolveCacheStore($store)->put($key, $value, $ttl);
+
+        try {
+            $this->resolveCacheStore($store)->put($key, $value, $ttl);
+        } catch (\Throwable $e) {
+            Log::warning('iam-auth.cache-store-write-failed', [
+                'store' => $store,
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function logExpiredOnArrival(CredentialsInterface $credentials): void
