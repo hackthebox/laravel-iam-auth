@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-05-21
+
+### Fixed
+
+- `RdsTokenProvider` no longer wraps credentials in `fn () => $credentials`. The closure returned a raw `Credentials`, but `AuthTokenGenerator::createToken()` calls `$provider()->wait()` expecting a `PromiseInterface` — `Credentials` has no `wait()`, so token generation broke. Pass `$credentials` directly; the SDK wraps it in a `FulfilledPromise` itself. Regression introduced in v2.0.1.
+
 ## [2.0.1] - 2026-05-18
 
 ### Fixed
@@ -89,7 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for PHP 8.2, 8.3, and 8.4
 - Support for Laravel 11 and 12
 
-[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.2...HEAD
+[2.0.2]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.2...v1.1.0
