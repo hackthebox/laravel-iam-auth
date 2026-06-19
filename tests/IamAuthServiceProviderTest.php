@@ -134,6 +134,24 @@ class IamAuthServiceProviderTest extends TestCase
         $this->assertInstanceOf(PromiseInterface::class, $promise);
     }
 
+    public function test_full_config_is_serializable_for_config_cache(): void
+    {
+        $exported = '<?php return '.var_export(config()->all(), true).';';
+
+        $tmp = tempnam(sys_get_temp_dir(), 'iam-auth-cfg-');
+        file_put_contents($tmp, $exported);
+
+        try {
+            $restored = require $tmp;
+            $this->assertIsArray($restored);
+            $this->assertArrayHasKey('aws', $restored);
+            $this->assertArrayHasKey('credentials', $restored['aws']);
+            $this->assertIsCallable($restored['aws']['credentials']);
+        } finally {
+            @unlink($tmp);
+        }
+    }
+
     public function test_ecs_credential_provider_does_not_crash_when_wrapped(): void
     {
         config(['iam-auth.credential_provider' => 'ecs']);

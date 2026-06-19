@@ -4,6 +4,7 @@ namespace Hackthebox\IamAuth;
 
 use Aws\CacheInterface;
 use Aws\Credentials\CredentialProvider;
+use GuzzleHttp\Promise\PromiseInterface;
 use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
 use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
@@ -31,7 +32,7 @@ class IamAuthServiceProvider extends ServiceProvider
             );
         });
 
-        config(['aws.credentials' => fn () => app(CachedCredentialProvider::class)()]);
+        config(['aws.credentials' => [self::class, 'resolveCredentialsForSdk']]);
 
         $this->app->bind(RdsTokenProvider::class, function ($app) {
             return new RdsTokenProvider($app->make(CachedCredentialProvider::class));
@@ -46,6 +47,11 @@ class IamAuthServiceProvider extends ServiceProvider
         $this->app->bind('db.connector.pgsql', function ($app) {
             return new IamPostgresConnector($app->make(RdsTokenProvider::class));
         });
+    }
+
+    public static function resolveCredentialsForSdk(): PromiseInterface
+    {
+        return app(CachedCredentialProvider::class)();
     }
 
     public function boot(): void

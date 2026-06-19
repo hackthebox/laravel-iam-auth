@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The auth-rejection retry now repopulates the cross-request store on success, so sibling workers no longer thunder the credential agent during rotation.
 - `forceFresh=true` reliably bypasses caching for `credential_provider=default`, which previously was undermined by the SDK's internal `memoize` wrapping inside `defaultProvider()`.
 - `CachedCredentialProvider::invalidate()` now sets a one-shot store-bypass flag in addition to calling `store->remove()`. Guarantees the next resolve skips the cross-process cache even if the underlying Laravel cache backend silently failed the remove (the store is best-effort by design), so the auth-rejection retry cannot re-sign with the same rejected credentials.
+- `aws.credentials` config value is now a static method callable (`[IamAuthServiceProvider::class, 'resolveCredentialsForSdk']`) instead of a `Closure`. `php artisan config:cache` previously threw `Your configuration files could not be serialized because the value at "aws.credentials" is non-serializable` because `var_export` cannot encode closures. Array callables of strings serialize cleanly and still satisfy `is_callable`, so `Aws\Sdk` invokes the static method which delegates to `CachedCredentialProvider`. Reported by @vlasopoulos on PR #12.
 
 ## [2.0.1] - 2026-05-18
 
