@@ -22,7 +22,7 @@ Supports MySQL, MariaDB, and PostgreSQL. All three drivers share the same connec
 ## Requirements
 
 - PHP >= 8.2
-- Laravel 11 or 12
+- Laravel 12 or 13
 - aws/aws-sdk-php-laravel >= 3.7 and aws/aws-sdk-php >= 3.249 (both installed automatically)
 - APCu extension (recommended for production — caches resolved AWS credentials across FPM requests)
 - RDS instance with IAM authentication enabled
@@ -202,6 +202,17 @@ $s3 = new \Aws\S3\S3Client([...]);
 ```
 
 **Cache security note:** Cached AWS credentials are stored in plaintext in the configured backend. Ensure your cache backend is appropriately secured. APCu stores credentials in shared memory within the PHP process, which is not accessible externally.
+
+**Laravel 13 `serializable_classes`:** Laravel 13 added a `cache.serializable_classes` config option, defaulted to `false` in fresh installs, which restricts the classes the cache may unserialize (defense against deserialization gadget chains). The `cache_store` fallback path stores an `Aws\Credentials\Credentials` object, so on Laravel 13 apps that keep the `false` default the credential entry is read back as `__PHP_Incomplete_Class` and treated as a cache miss. The effect is silent degradation of the fallback path (every request re-resolves credentials), not an error. If you rely on the `cache_store` fallback rather than APCu, allow-list the class:
+
+```php
+// config/cache.php
+'serializable_classes' => [
+    Aws\Credentials\Credentials::class,
+],
+```
+
+The APCu path is unaffected (APCu uses its own serialization, not the Laravel cache repository).
 
 **Static credentials are not cached.** Credentials without a reported expiration (e.g. static env keys, `~/.aws/credentials` profiles without an `expiration`) cannot be safely cached because the package has no signal for when to evict them. Each request will re-invoke the SDK credential chain. This is intentional: the expired-on-arrival guard in `AwsCredentialCacheStore::set()` prevents storing credentials the SDK has already marked expired, but long-lived credentials have no expiration to check. Production workloads on IRSA / Pod Identity / instance profiles get full caching benefits because the SDK reports an expiration.
 

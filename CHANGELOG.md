@@ -16,8 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RdsTokenProvider` constructor now takes a single `CachedCredentialProvider` instead of raw callables. `forceFresh` is implemented by invalidating the provider, not by holding a second binding.
 - `InjectsIamToken` trait contract reduced to a single `getTokenProvider(): RdsTokenProvider` requirement. The previous `getCacheStore()` hook is gone; the three built-in connectors (MySQL, MariaDB, Postgres) are updated, any custom connector mixing in the trait must update too.
 - Deleted `Hackthebox\IamAuth\AwsCredentialCache`. Replaced by `Hackthebox\IamAuth\Cache\AwsCredentialCacheStore` (implements `Aws\CacheInterface`) and `Hackthebox\IamAuth\Cache\CachedCredentialProvider` (the wrapping provider with explicit `invalidate()`).
+- Dropped Laravel 11 support (`illuminate/*` constraint is now `^12.0|^13.0`). Laravel 11 is past active support and every current 11.x release carries unpatched security advisories that Composer's default advisory blocking refuses to install. PHP 8.2 remains supported (still in security support, and Laravel 12 runs on it).
 
 ### Added
+
+- Laravel 13 support (`illuminate/*` accepts `^13.0`, tested against `orchestra/testbench ^11.0`). Laravel 13 requires PHP 8.3+, so the 8.2 test cell runs against Laravel 12 only.
 
 - `Aws\CacheInterface` integration: credential caching now uses the AWS SDK's standard extension point. Cached credentials are shared across all AWS SDK clients in the host application (S3, SQS, SES, OpenSearch, etc.), not just RDS.
 - `CachedCredentialProvider`: owns the per-request memo and the cross-request store, exposes a public `invalidate()`, and serves `credentialSnapshot()` for observability. Replaces the two-binding (cached + fresh) workaround that earlier rc had to use because `CredentialProvider::memoize` has no invalidation hook.

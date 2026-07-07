@@ -53,6 +53,25 @@ class CachedCredentialProviderTest extends TestCase
         $this->assertSame($creds, $provider()->wait());
     }
 
+    public function test_foreign_object_from_store_is_treated_as_miss(): void
+    {
+        // Laravel 13 cache.serializable_classes => false yields a __PHP_Incomplete_Class on read; must re-fetch.
+        $fresh = $this->fresh('AKIAFRESH');
+        $baseCalls = 0;
+        $base = function () use (&$baseCalls, $fresh) {
+            $baseCalls++;
+            return Create::promiseFor($fresh);
+        };
+
+        $store = $this->createMock(CacheInterface::class);
+        $store->method('get')->willReturn((object) ['not' => 'a credential']);
+
+        $provider = new CachedCredentialProvider($base, $store, 'k');
+
+        $this->assertSame($fresh, $provider()->wait());
+        $this->assertSame(1, $baseCalls, 'a foreign object in the cache slot must not satisfy the read');
+    }
+
     public function test_writes_to_store_after_fetching_from_base(): void
     {
         $creds = $this->fresh('AKIABASE', ttl: 600);

@@ -206,6 +206,19 @@ class AwsCredentialCacheStoreTest extends TestCase
         $this->assertSame('AKIAPEEKL', $peeked->getAccessKeyId());
     }
 
+    public function test_peek_returns_null_when_laravel_cache_returns_foreign_object(): void
+    {
+        $repo = $this->createMock(Repository::class);
+        $repo->method('get')->with('test_key')->willReturn((object) ['not' => 'a credential']);
+
+        $factory = $this->createMock(Factory::class);
+        $factory->method('store')->with('redis')->willReturn($repo);
+
+        $store = $this->makeStoreWithFactory(apcuAvailable: false, cacheStore: 'redis', factory: $factory);
+
+        $this->assertNull($store->peek('test_key'));
+    }
+
     public function test_peek_returns_null_when_laravel_cache_throws(): void
     {
         $repo = $this->createMock(Repository::class);
