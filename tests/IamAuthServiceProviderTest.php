@@ -2,19 +2,26 @@
 
 namespace Hackthebox\IamAuth\Tests;
 
+use Aws\CacheInterface;
+use Aws\Laravel\AwsServiceProvider;
+use GuzzleHttp\Promise\PromiseInterface;
+use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
+use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
-use Illuminate\Support\Facades\Log;
+use Hackthebox\IamAuth\RdsTokenProvider;
 use Orchestra\Testbench\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
+use RuntimeException;
 
 class IamAuthServiceProviderTest extends TestCase
 {
     protected function getPackageProviders($app): array
     {
         return [
-            \Aws\Laravel\AwsServiceProvider::class,
+            AwsServiceProvider::class,
             IamAuthServiceProvider::class,
         ];
     }
@@ -43,47 +50,29 @@ class IamAuthServiceProviderTest extends TestCase
         );
     }
 
-    public function test_registers_aws_credential_cache(): void
-    {
-        $this->assertInstanceOf(
-            \Hackthebox\IamAuth\AwsCredentialCache::class,
-            $this->app->make(\Hackthebox\IamAuth\AwsCredentialCache::class)
-        );
-    }
-
     public function test_merges_config(): void
     {
         $this->assertNotNull(config('iam-auth.region'));
-        $this->assertSame(600, config('iam-auth.cache_ttl'));
         $this->assertStringEndsWith('resources/certs/global-bundle.pem', config('iam-auth.ssl_ca_path'));
     }
 
-    public function test_registers_credential_provider_binding(): void
+    public function test_cached_credential_provider_is_singleton(): void
     {
-        $provider = $this->app->make('iam-auth.credential-provider');
+        $a = app(CachedCredentialProvider::class);
+        $b = app(CachedCredentialProvider::class);
 
-        $this->assertIsCallable($provider);
+        $this->assertSame($a, $b);
     }
 
-    public function test_extends_aws_sdk_singleton(): void
-    {
-        $sdk = $this->app->make('aws');
-
-        $this->assertInstanceOf(\Aws\Sdk::class, $sdk);
-    }
-
-    /**
-     * @dataProvider validCredentialProviderNames
-     */
+    #[DataProvider('validCredentialProviderNames')]
     public function test_builds_all_supported_credential_providers(string $name): void
     {
         config(['iam-auth.credential_provider' => $name]);
 
-        // Force re-resolution of the singleton
-        $this->app->forgetInstance('iam-auth.credential-provider');
+        $this->app->forgetInstance(CachedCredentialProvider::class);
 
-        $provider = $this->app->make('iam-auth.credential-provider');
-        $this->assertIsCallable($provider);
+        $provider = $this->app->make(CachedCredentialProvider::class);
+        $this->assertInstanceOf(CachedCredentialProvider::class, $provider);
     }
 
     public static function validCredentialProviderNames(): array
@@ -103,85 +92,73 @@ class IamAuthServiceProviderTest extends TestCase
     {
         config(['iam-auth.credential_provider' => 'banana']);
 
-        $this->app->forgetInstance('iam-auth.credential-provider');
+        $this->app->forgetInstance(CachedCredentialProvider::class);
 
-        $this->expectException(\RuntimeException::class);
+        $this->expectException(RuntimeException::class);
         $this->expectExceptionMessage("Unsupported IAM auth credential provider 'banana'");
 
-        $this->app->make('iam-auth.credential-provider');
+        $this->app->make(CachedCredentialProvider::class);
     }
 
-    public function test_boot_warns_on_negative_credentials_expiry_buffer(): void
+    public function test_binds_aws_cache_interface_to_credential_cache_store(): void
     {
-        config(['iam-auth.credentials_expiry_buffer' => -100]);
-
-        Log::spy();
-
-        (new IamAuthServiceProvider($this->app))->boot();
-
-        Log::shouldHaveReceived('warning')
-            ->once()
-            ->withArgs(function (string $message, array $context) {
-                return str_contains($message, 'credentials_expiry_buffer')
-                    && $context['value'] === -100;
-            });
+        $store = app(CacheInterface::class);
+        $this->assertInstanceOf(AwsCredentialCacheStore::class, $store);
     }
 
-    public function test_boot_does_not_warn_on_large_credentials_expiry_buffer(): void
+    public function test_rds_token_provider_resolves_with_cached_provider(): void
     {
-        // Large buffers are an operator choice (frequent refresh on short
-        // sessions), not a misconfiguration. The runtime caches less, which
-        // is observable as agent load; no boot-time warning.
-        config(['iam-auth.credentials_expiry_buffer' => 3600]);
-
-        Log::spy();
-
-        (new IamAuthServiceProvider($this->app))->boot();
-
-        Log::shouldNotHaveReceived('warning');
+        $provider = app(RdsTokenProvider::class);
+        $this->assertInstanceOf(RdsTokenProvider::class, $provider);
     }
 
-    public function test_boot_warns_on_non_numeric_credentials_expiry_buffer(): void
+    public function test_aws_credentials_config_injected_without_rebuilding_singleton(): void
     {
-        config(['iam-auth.credentials_expiry_buffer' => 'not-a-number']);
+        $this->app->extend('aws', function ($sdk) {
+            $sdk->__sentinel = 'preserved';
+            return $sdk;
+        });
 
-        Log::spy();
+        $sdk = app('aws');
 
-        (new IamAuthServiceProvider($this->app))->boot();
-
-        Log::shouldHaveReceived('warning')
-            ->once()
-            ->withArgs(fn (string $message) => str_contains($message, 'credentials_expiry_buffer'));
+        $this->assertTrue(property_exists($sdk, '__sentinel'));
+        $this->assertSame('preserved', $sdk->__sentinel);
     }
 
-    public function test_boot_does_not_warn_on_valid_credentials_expiry_buffer(): void
+    public function test_aws_credentials_config_uses_cached_credential_provider(): void
     {
-        config(['iam-auth.credentials_expiry_buffer' => 10]);
+        $resolved = config('aws.credentials');
+        $this->assertIsCallable($resolved);
 
-        Log::spy();
-
-        (new IamAuthServiceProvider($this->app))->boot();
-
-        Log::shouldNotHaveReceived('warning');
+        $promise = $resolved();
+        $this->assertInstanceOf(PromiseInterface::class, $promise);
     }
 
-    public function test_env_non_numeric_credentials_expiry_buffer_reaches_validator(): void
+    public function test_full_config_is_serializable_for_config_cache(): void
     {
-        $_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER'] = 'oops';
+        $exported = '<?php return '.var_export(config()->all(), true).';';
+
+        $tmp = tempnam(sys_get_temp_dir(), 'iam-auth-cfg-');
+        file_put_contents($tmp, $exported);
 
         try {
-            config()->set('iam-auth', require __DIR__.'/../config/iam-auth.php');
-
-            $this->assertSame('oops', config('iam-auth.credentials_expiry_buffer'));
-
-            Log::spy();
-            (new IamAuthServiceProvider($this->app))->boot();
-
-            Log::shouldHaveReceived('warning')
-                ->once()
-                ->withArgs(fn (string $message) => str_contains($message, 'is not numeric'));
+            $restored = require $tmp;
+            $this->assertIsArray($restored);
+            $this->assertArrayHasKey('aws', $restored);
+            $this->assertArrayHasKey('credentials', $restored['aws']);
+            $this->assertIsCallable($restored['aws']['credentials']);
         } finally {
-            unset($_SERVER['IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER']);
+            @unlink($tmp);
         }
+    }
+
+    public function test_ecs_credential_provider_does_not_crash_when_wrapped(): void
+    {
+        config(['iam-auth.credential_provider' => 'ecs']);
+        $this->app->forgetInstance(CachedCredentialProvider::class);
+
+        $provider = $this->app->make(CachedCredentialProvider::class);
+
+        $this->assertInstanceOf(CachedCredentialProvider::class, $provider);
     }
 }

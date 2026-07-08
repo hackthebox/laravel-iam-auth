@@ -2,24 +2,17 @@
 
 namespace Hackthebox\IamAuth\Connectors;
 
-use Hackthebox\IamAuth\AwsCredentialCache;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use PDO;
 use PDOException;
+use Throwable;
 
 trait InjectsIamToken
 {
-    /**
-     * Get the token provider instance.
-     */
     abstract protected function getTokenProvider(): RdsTokenProvider;
 
-    /**
-     * Create a new PDO connection, injecting an IAM auth token as the
-     * password when 'use_iam_auth' is enabled on the connection config.
-     */
     public function createConnection($dsn, array $config, array $options): PDO
     {
         if (empty($config['use_iam_auth'])) {
@@ -33,25 +26,47 @@ trait InjectsIamToken
             : $this->getDefaultPort();
 
         $region = $config['region'] ?? config('iam-auth.region');
-        $cacheKey = RdsTokenProvider::cacheKey($config['host'], $port, $config['username'], $region);
+        $tokenProvider = $this->getTokenProvider();
 
-        $config['password'] = $this->getTokenProvider()->getToken(
-            $config['host'],
-            $port,
-            $config['username'],
-            $region,
+        $config['password'] = $tokenProvider->getToken(
+            $config['host'], $port, $config['username'], $region,
         );
 
         $options = $this->applyIamSslOptions($options);
 
         try {
+            // parent::createConnection (not createPdoConnection): preserves Laravel's
+            // tryAgainIfCausedByLostConnection wrapper around the PDO instantiation.
             return parent::createConnection($dsn, $config, $options);
         } catch (PDOException $e) {
-            if ($this->isAuthRejection($e)) {
-                $this->logAuthRejection($config, $cacheKey);
+            if (!$this->isAuthRejection($e)) {
+                throw $e;
             }
-            throw $e;
+
+            $this->logAuthRejection($config);
+
+            $config['password'] = $tokenProvider->getToken(
+                $config['host'], $port, $config['username'], $region,
+                forceFresh: true,
+            );
+
+            try {
+                return parent::createConnection($dsn, $config, $options);
+            } catch (PDOException $retryE) {
+                if ($this->isAuthRejection($retryE)) {
+                    $this->logAuthRejectionRetryFailed($config);
+                }
+                throw $retryE;
+            }
         }
+    }
+
+    protected function causedByLostConnection(Throwable $e): bool
+    {
+        if ($e instanceof PDOException && $this->isAuthRejection($e)) {
+            return false;
+        }
+        return parent::causedByLostConnection($e);
     }
 
     private function isAuthRejection(PDOException $e): bool
@@ -59,41 +74,44 @@ trait InjectsIamToken
         $sqlstate = (string) ($e->errorInfo[0] ?? '');
         $driverCode = $e->errorInfo[1] ?? null;
 
-        $isPostgresClass28 = str_starts_with($sqlstate, '28');
-        $isMysqlAccessDenied = $driverCode === 1045;
-
-        return $isPostgresClass28 || $isMysqlAccessDenied;
+        return str_starts_with($sqlstate, '28') || $driverCode === 1045;
     }
 
-    private function logAuthRejection(array $config, string $cacheKey): void
+    private function logAuthRejection(array $config): void
     {
-        Log::warning('iam-auth.rds-auth-rejected', [
-            'cache_key' => $cacheKey,
+        Log::warning('iam-auth.rds-auth-rejected', $this->rejectionPayload($config));
+    }
+
+    private function logAuthRejectionRetryFailed(array $config): void
+    {
+        Log::warning('iam-auth.rds-auth-rejected-retry-failed', $this->rejectionPayload($config));
+    }
+
+    private function rejectionPayload(array $config): array
+    {
+        return [
             'username' => $config['username'] ?? null,
             'host' => $config['host'] ?? null,
-            ...app(AwsCredentialCache::class)->credentialSnapshot(),
-        ]);
+            ...$this->getTokenProvider()->credentialSnapshot(),
+        ];
     }
 
-    /**
-     * Validate that required IAM config values are present.
-     */
     private function validateIamConfig(array $config): void
     {
-        if (empty($config['host']) || ! is_string($config['host'])) {
+        if (empty($config['host']) || !is_string($config['host'])) {
             throw new InvalidArgumentException(
                 'IAM auth requires a non-empty "host" in the database connection config.'
             );
         }
 
-        if (empty($config['username']) || ! is_string($config['username'])) {
+        if (empty($config['username']) || !is_string($config['username'])) {
             throw new InvalidArgumentException(
                 'IAM auth requires a non-empty "username" in the database connection config.'
             );
         }
 
         $region = $config['region'] ?? config('iam-auth.region');
-        if (empty($region) || ! is_string($region)) {
+        if (empty($region) || !is_string($region)) {
             throw new InvalidArgumentException(
                 'IAM auth requires a non-empty "region" in the database connection config or iam-auth.region config.'
             );
@@ -109,13 +127,6 @@ trait InjectsIamToken
         }
     }
 
-    /**
-     * Apply driver-specific SSL options required for IAM auth.
-     */
     abstract protected function applyIamSslOptions(array $options): array;
-
-    /**
-     * Get the default port for this driver.
-     */
     abstract protected function getDefaultPort(): int;
 }

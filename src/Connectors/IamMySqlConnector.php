@@ -10,8 +10,9 @@ class IamMySqlConnector extends MySqlConnector
 {
     use InjectsIamToken;
 
-    public function __construct(private readonly RdsTokenProvider $tokenProvider)
-    {
+    public function __construct(
+        private readonly RdsTokenProvider $tokenProvider,
+    ) {
     }
 
     protected function getTokenProvider(): RdsTokenProvider
@@ -21,7 +22,7 @@ class IamMySqlConnector extends MySqlConnector
 
     protected function applyIamSslOptions(array $options): array
     {
-        if (! isset($options[PDO::MYSQL_ATTR_SSL_CA])) {
+        if (!isset($options[PDO::MYSQL_ATTR_SSL_CA])) {
             $options[PDO::MYSQL_ATTR_SSL_CA] = config('iam-auth.ssl_ca_path');
         }
 

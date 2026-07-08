@@ -36,9 +36,9 @@ return [
     | Cache Store
     |--------------------------------------------------------------------------
     |
-    | The Laravel cache store for caching RDS IAM auth tokens and resolved
-    | AWS SDK credentials when APCu is not available. A single store is used
-    | for both (with separate cache keys and TTLs).
+    | The Laravel cache store for caching resolved AWS SDK credentials when
+    | APCu is not available. RDS auth tokens are signed per call and not
+    | cached.
     |
     | APCu always takes priority when available (best for PHP-FPM).
     | Set to null to disable Laravel cache fallback.
@@ -48,39 +48,6 @@ return [
     */
 
     'cache_store' => env('IAM_AUTH_CACHE_STORE'),
-
-    /*
-    |--------------------------------------------------------------------------
-    | RDS Token Cache TTL
-    |--------------------------------------------------------------------------
-    |
-    | How long (in seconds) to cache the RDS IAM auth token. Tokens are
-    | valid for 15 minutes. The default of 600 seconds (10 min) leaves a
-    | 5-minute buffer before expiry.
-    |
-    */
-
-    'cache_ttl' => (int) env('IAM_AUTH_CACHE_TTL', 600),
-
-    /*
-    |--------------------------------------------------------------------------
-    | AWS Credentials Expiry Buffer
-    |--------------------------------------------------------------------------
-    |
-    | How many seconds before the AWS SDK credentials' reported expiration
-    | the cache should evict them. Acts as a safety margin against clock
-    | drift and serving latency. Smaller values cache credentials longer
-    | and hit the credential provider less often; larger values refresh
-    | more aggressively at the cost of higher Pod Identity Agent / STS
-    | load near session boundaries.
-    |
-    | The default of 10s is appropriate for NTP-synced infrastructure
-    | (typical sub-second drift). Increase if you observe clock drift or
-    | use very short-lived sessions.
-    |
-    */
-
-    'credentials_expiry_buffer' => env('IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER', 10),
 
     /*
     |--------------------------------------------------------------------------

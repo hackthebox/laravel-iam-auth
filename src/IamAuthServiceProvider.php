@@ -2,14 +2,14 @@
 
 namespace Hackthebox\IamAuth;
 
+use Aws\CacheInterface;
 use Aws\Credentials\CredentialProvider;
-use Aws\Sdk;
-use GuzzleHttp\Promise\Create;
+use GuzzleHttp\Promise\PromiseInterface;
+use Hackthebox\IamAuth\Cache\AwsCredentialCacheStore;
+use Hackthebox\IamAuth\Cache\CachedCredentialProvider;
 use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\Connectors\IamMySqlConnector;
 use Hackthebox\IamAuth\Connectors\IamPostgresConnector;
-use Illuminate\Contracts\Foundation\Application;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\ServiceProvider;
 use RuntimeException;
 
@@ -21,37 +21,37 @@ class IamAuthServiceProvider extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/iam-auth.php', 'iam-auth');
 
-        $this->app->singleton(AwsCredentialCache::class);
+        $this->app->singleton(CacheInterface::class, AwsCredentialCacheStore::class);
 
-        $this->app->singleton('iam-auth.credential-provider', function ($app) {
-            $cache = $app->make(AwsCredentialCache::class);
-            $provider = $this->buildCredentialProvider();
-
-            return function () use ($cache, $provider) {
-                try {
-                    return Create::promiseFor(
-                        $cache->resolve(fn () => $provider()->wait())
-                    );
-                } catch (\Throwable $e) {
-                    return Create::rejectionFor($e);
-                }
-            };
+        $this->app->singleton(CachedCredentialProvider::class, function ($app) {
+            $base = $this->buildBaseProvider();
+            return new CachedCredentialProvider(
+                static fn () => $base(),
+                $app->make(CacheInterface::class),
+                AwsCredentialCacheStore::CACHE_KEY,
+            );
         });
 
-        $this->app->extend('aws', function (Sdk $sdk, Application $app) {
-            $config = $app->make('config')->get('aws');
-            $config['credentials'] = $app->make('iam-auth.credential-provider');
-
-            return new Sdk($config);
-        });
+        config(['aws.credentials' => [self::class, 'resolveCredentialsForSdk']]);
 
         $this->app->bind(RdsTokenProvider::class, function ($app) {
-            return new RdsTokenProvider($app->make('iam-auth.credential-provider'));
+            return new RdsTokenProvider($app->make(CachedCredentialProvider::class));
         });
 
-        $this->app->bind('db.connector.mysql', IamMySqlConnector::class);
-        $this->app->bind('db.connector.mariadb', IamMariaDbConnector::class);
-        $this->app->bind('db.connector.pgsql', IamPostgresConnector::class);
+        $this->app->bind('db.connector.mysql', function ($app) {
+            return new IamMySqlConnector($app->make(RdsTokenProvider::class));
+        });
+        $this->app->bind('db.connector.mariadb', function ($app) {
+            return new IamMariaDbConnector($app->make(RdsTokenProvider::class));
+        });
+        $this->app->bind('db.connector.pgsql', function ($app) {
+            return new IamPostgresConnector($app->make(RdsTokenProvider::class));
+        });
+    }
+
+    public static function resolveCredentialsForSdk(): PromiseInterface
+    {
+        return app(CachedCredentialProvider::class)();
     }
 
     public function boot(): void
@@ -60,29 +60,12 @@ class IamAuthServiceProvider extends ServiceProvider
             config(['iam-auth.ssl_ca_path' => self::BUNDLED_CA_PATH]);
         }
 
-        $this->validateCredentialsExpiryBuffer(config('iam-auth.credentials_expiry_buffer'));
-
         $this->publishes([
             __DIR__.'/../config/iam-auth.php' => config_path('iam-auth.php'),
         ], 'iam-auth-config');
     }
 
-    private function validateCredentialsExpiryBuffer(mixed $value): void
-    {
-        if (AwsCredentialCache::isValidCredentialsExpiryBufferValue($value)) {
-            return;
-        }
-
-        $default = AwsCredentialCache::DEFAULT_CREDENTIALS_EXPIRY_BUFFER;
-        $reason = is_numeric($value) ? 'is negative' : 'is not numeric';
-
-        Log::warning("iam-auth: credentials_expiry_buffer $reason; falling back to default ({$default}s)", [
-            'value' => $value,
-            'type' => gettype($value),
-        ]);
-    }
-
-    private function buildCredentialProvider(): callable
+    private function buildBaseProvider(): callable
     {
         $name = config('iam-auth.credential_provider', 'default');
 

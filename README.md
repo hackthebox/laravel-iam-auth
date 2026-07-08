@@ -1,6 +1,6 @@
 # Laravel IAM Auth
 
-AWS IAM authentication for Laravel: RDS database connections and SDK credential caching. Designed for EKS workloads using Pod Identity or IRSA — no sidecars, no static credentials.
+AWS IAM authentication for Laravel: RDS database connections and SDK credential caching. Designed for EKS workloads using Pod Identity or IRSA (no sidecars, no static credentials).
 
 ## Features
 
@@ -9,11 +9,11 @@ AWS IAM authentication for Laravel: RDS database connections and SDK credential 
 
 ## How It Works
 
-This package overrides Laravel's database connectors for MySQL, MariaDB, and PostgreSQL. When `use_iam_auth` is enabled on a connection, the connector generates a short-lived IAM auth token (via the AWS SDK) and uses it as the database password. Tokens are cached via APCu (preferred) or a configurable Laravel cache store to avoid per-request STS calls.
+This package overrides Laravel's database connectors for MySQL, MariaDB, and PostgreSQL. When `use_iam_auth` is enabled on a connection, the connector generates a short-lived IAM auth token (via the AWS SDK) and uses it as the database password. The token is generated fresh on each connection; the AWS SDK credential resolution that backs the token signature is cached across PHP-FPM requests (APCu-first).
 
 The package does **not** introduce a new database driver. Laravel's `MySqlConnection`, `MariaDbConnection`, and `PostgresConnection` are used as-is.
 
-The package also extends the aws/aws-sdk-php-laravel SDK singleton to cache resolved AWS credentials across PHP-FPM requests, benefiting all AWS SDK calls in your application.
+The package wires `config('aws.credentials')` to a custom `CachedCredentialProvider` so that the AWS SDK singleton (`app('aws')`) and any client created from it share cached credentials across PHP-FPM requests. Other-package customizations on the SDK singleton are preserved (the singleton is not rebuilt).
 
 ## Driver Support
 
@@ -22,9 +22,9 @@ Supports MySQL, MariaDB, and PostgreSQL. All three drivers share the same connec
 ## Requirements
 
 - PHP >= 8.2
-- Laravel 11 or 12
+- Laravel 12 or 13
 - aws/aws-sdk-php-laravel >= 3.7 and aws/aws-sdk-php >= 3.249 (both installed automatically)
-- APCu extension (recommended for production — caches tokens and credentials across FPM requests)
+- APCu extension (recommended for production — caches resolved AWS credentials across FPM requests)
 - RDS instance with IAM authentication enabled
 - SSL CA bundle (bundled — override via `IAM_AUTH_SSL_CA_PATH` env if needed)
 
@@ -111,10 +111,8 @@ The package config (`config/iam-auth.php`):
 |---|---|---|
 | `region` | `AWS_DEFAULT_REGION` / `AWS_REGION` env | Fallback region when not set on connection |
 | `credential_provider` | `default` | AWS credential provider for all SDK operations (S3, SQS, RDS, etc.). Override with `IAM_AUTH_CREDENTIAL_PROVIDER` env. Supported: `default`, `environment`, `ecs`, `web_identity`, `instance_profile`, `sso`, `ini`. |
-| `cache_store` | `null` | Laravel cache store for caching RDS tokens and AWS credentials when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. Override with `IAM_AUTH_CACHE_STORE` env. |
-| `cache_ttl` | `600` (10 min) | RDS token cache TTL in seconds. Override with `IAM_AUTH_CACHE_TTL` env. |
-| `credentials_expiry_buffer` | `10` (seconds) | Eviction buffer subtracted from AWS SDK credentials' reported expiration. Override with `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` env. Negative or non-numeric values fall back to the default and log a boot-time warning. |
-| `debug` | `false` | When `true`, emits verbose debug logging of credential and token cache state on every `getToken` call. High log volume; intended for short investigation soaks only. Override with `IAM_AUTH_DEBUG` env. |
+| `cache_store` | `null` | Laravel cache store for caching resolved AWS credentials when APCu is unavailable. Use `file`, `redis`, `memcached`, etc. **Never** `database` or `dynamodb`. Override with `IAM_AUTH_CACHE_STORE` env. |
+| `debug` | `false` | When `true`, emits a verbose `iam-auth.token-access` debug log on every `getToken` call, including `host`, `port`, `username`, `region`, `force_fresh`, and `access_key_prefix` (first 8 characters of the AccessKeyId). High log volume; intended for short investigation soaks only. Override with `IAM_AUTH_DEBUG` env. |
 | `pgsql_sslmode` | `verify-full` | SSL mode for PostgreSQL IAM connections. Override with `IAM_AUTH_PGSQL_SSLMODE` env. |
 | `ssl_ca_path` | Bundled `global-bundle.pem` | Path to the RDS CA bundle. Override with `IAM_AUTH_SSL_CA_PATH` env. |
 
@@ -146,56 +144,42 @@ The AWS SDK default credential chain picks up Pod Identity credentials automatic
 
 *The option to force a specific credential provider exists via the `credential_provider` config option.*
 
-## Token Caching
+## Token Generation
 
-IAM auth tokens are valid for 15 minutes. The package caches them to avoid per-request STS calls:
-
-1. **APCu** (highest priority) — shared memory, zero I/O. Best for PHP-FPM. Install `ext-apcu` and it's used automatically.
-2. **Laravel cache store** — set `cache_store` to `file`, `redis`, `memcached`, etc. Good for queue workers or environments without APCu.
-3. **No caching** — fresh token per connection. Fine for local dev (`use_iam_auth` is typically `false`) and short-lived CLI commands.
-
-**Do not** set `cache_store` to `database` or `dynamodb` — this creates a circular dependency (need a DB connection to cache the token needed to open the DB connection). The package will throw a `RuntimeException` if you do.
-
-**CLI and queue workers:** APCu is disabled in CLI by default (`apcu_enabled()` returns `false`). If you run queue workers with IAM auth, either set `apc.enable_cli=1` in your PHP CLI config, or configure a `cache_store` (e.g. `file` or `redis`).
-
-**Cache security note:** When using `file`, `redis`, or `memcached` as the cache store, the IAM token is stored in plaintext. The token is short-lived (15 min) and scoped to a specific DB user, but ensure your cache backend is appropriately secured. APCu stores tokens in shared memory within the PHP process, which is not accessible externally.
+IAM auth tokens are valid for 15 minutes and are generated fresh on each database connection. Because RDS token signing is local HMAC work using already-cached credentials, the cost per connection is negligible.
 
 **Bundled CA certificate:** The package includes the AWS RDS global CA bundle. This certificate bundle may become stale over time. If you encounter SSL verification errors, download the latest bundle from AWS and set `IAM_AUTH_SSL_CA_PATH` to point to it.
 
 ## Defensive Behavior
 
-The package guards against a failure mode where a cached IAM token would be reused with AWS credentials whose underlying STS session has rotated (or evicted from the credential cache) since the token was signed. RDS would otherwise accept the SigV4 signature but reject the now-stale session token, surfacing as `Access denied for user '...' (using password: YES)`.
+**Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `CachedCredentialProvider` emits a `Log::warning` under the channel `iam-auth.credentials-expired-on-arrival` and throws a `RuntimeException` before the credentials reach the SigV4 signer. The same guard also lives in `AwsCredentialCacheStore::set()` as defense-in-depth against any external code writing expired credentials directly into the cache.
 
-- **Expired-on-arrival credentials throw.** When the AWS SDK credential provider hands back a `Credentials` object that is already past its expiration, `AwsCredentialCache::resolve()` throws a `RuntimeException` instead of passing them to the SigV4 signer, and emits a `Log::warning` under the channel `iam-auth.credentials-expired-on-arrival` for operator visibility. Callers should retry after a short backoff rather than catching and ignoring.
-- **Cached RDS tokens carry a signing-credentials fingerprint.** Each cached entry is `{ token, sig_kid, signed_at }`, where `sig_kid` is a truncated SHA-256 of the `AccessKeyId + SecurityToken` that signed the token. On retrieval, the package compares the entry's `sig_kid` against the current credentials' fingerprint; on mismatch (or any non-conforming legacy entry), the token is regenerated and re-cached. APCu cache-miss atomicity (`apcu_entry`) is preserved.
+**Cache-backend resilience.** All three cache operations (`get`, `set`, `remove`) treat Laravel cache backend failures as best-effort: transient errors (e.g. Redis temporarily unavailable) are swallowed and logged under `iam-auth.cache-store-write-failed`, so a single backend blip cannot fail user requests even when credentials were resolved successfully. Misconfiguration (an unsafe `cache_store` like `database` or `dynamodb`) still throws loudly via `assertSafeCacheStore` before any operation.
 
-Both guards are always on and agnostic to session-duration and agent-refresh-cadence configuration. No credential secrets are logged or persisted; only the truncated `sig_kid` and a `signed_at` timestamp accompany the token in the cache.
+**Auth rejection triggers a single retry with fresh credentials.** Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) triggers the following recovery sequence:
 
-**Performance note.** Computing the current fingerprint requires resolving credentials on every `getToken()` call, even on a token-cache hit. The cost is dominated by `AwsCredentialCache::resolve()`, which is APCu-backed in production and effectively free. If you disable credential caching (no APCu, no `cache_store`), every DB connection will re-invoke the SDK credential chain — keep credential caching enabled for IAM-auth workloads.
+1. Log `iam-auth.rds-auth-rejected` (warning) with the current credential cache snapshot.
+2. Invalidate `CachedCredentialProvider`'s in-process memo and the cross-request store.
+3. Re-sign the RDS token against freshly resolved credentials, which also repopulates the store so sibling workers benefit from the rotation.
+4. Retry the connection once.
 
-**Concurrency note.** On a `sig_kid` mismatch the package re-signs and overwrites the cache entry. Under concurrent workers this overwrite is not serialized (only the initial `apcu_entry` cache-miss is atomic). During a credential rotation window, N workers may each detect mismatch and redundantly re-sign. SigV4 signing is local HMAC work and all workers produce equivalent tokens, so the result is correct; the cost is bounded by the rotation frequency and is negligible in practice.
+If the retry also fails with an auth rejection, `iam-auth.rds-auth-rejected-retry-failed` is logged and the exception is re-thrown. This covers the common case of a credential rotation window landing between the credential cache write and the DB connect.
 
-Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) is logged at `warning` level under the structured channel `iam-auth.rds-auth-rejected`, carrying the cached credential state at the moment of rejection. Useful as an operational signal for monitoring or alerting on auth failures.
+The credential snapshot in the warning reflects the cache state at the moment the warning fires. On a busy multi-worker pod a concurrent refresh between signing and rejection can produce a snapshot of post-rotation credentials; this is cosmetic and does not affect the retry logic.
 
-The credential snapshot reflects the cache state **at the moment the warning fires**, not the exact credentials used to sign the rejected token. In practice these are the same (the window between signing and rejection is small and the credentials cache rarely rotates within it), but on a busy multi-worker pod a concurrent refresh between signing and rejection can produce a snapshot of post-rotation credentials.
-
-Operators who observe clock drift or want more aggressive credential refresh (e.g. for CI smoke tests against rotating credentials) can tune `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` (default `10` seconds). Negative or non-numeric values fall back to the default and emit a boot-time warning.
+**Performance note.** If you disable credential caching (no APCu, no `cache_store`), every DB connection will re-invoke the SDK credential chain. Keep credential caching enabled for IAM-auth workloads.
 
 ## Debugging
 
-Set `IAM_AUTH_DEBUG=true` in your environment to enable verbose per-`getToken` logging. The package emits an `iam-auth.token-access` debug line on every call with the credential and token cache state at that moment:
+Set `IAM_AUTH_DEBUG=true` in your environment to enable verbose per-`getToken` logging. The package emits an `iam-auth.token-access` debug line on every call:
 
-- `current_sig_kid` — fingerprint of the credentials about to sign the token.
-- `cached_sig_kid` — fingerprint stored in the cached entry (if any).
-- `sig_kid_match` — whether the cached entry matches the current credentials.
-- `cred_is_expired`, `cred_expires_in_s` — client-side credential lifetime.
-- `cred_access_key_prefix` — first 8 characters of the AccessKeyId (never the full credential).
+- `host`, `port`, `username`, `region`: connection target.
+- `force_fresh`: whether the call bypassed the credential cache (i.e., this is a retry after auth rejection).
+- `access_key_prefix`: first 8 characters of the AccessKeyId used to sign the token (never the full credential).
 
-The `iam-auth.rds-auth-rejected` warning is unconditional and fires regardless of `IAM_AUTH_DEBUG`; it carries the same credential snapshot.
+The `iam-auth.rds-auth-rejected` and `iam-auth.rds-auth-rejected-retry-failed` warnings are unconditional and fire regardless of `IAM_AUTH_DEBUG`.
 
 This log volume is too high for steady-state production. Enable for short investigation soaks only. No credential secrets are ever logged.
-
-Note: under `IAM_AUTH_DEBUG=true` each `getToken()` performs two cache reads — one to assemble the debug snapshot and one for the actual lookup. Negligible at investigation cadence; another reason not to leave debug on in steady state.
 
 ## AWS Credential Caching
 
@@ -203,7 +187,9 @@ When using IAM roles (IRSA, Pod Identity, instance profiles), the AWS SDK resolv
 
 This package caches resolved AWS SDK credentials across requests, benefiting **all** AWS SDK calls made by your application (S3, SQS, SES, etc.), not just RDS token generation.
 
-The same `cache_store` setting controls both RDS token caching and AWS credential caching (with separate cache keys and TTLs). APCu is always preferred when available.
+The `cache_store` setting controls AWS credential caching. APCu is always preferred when available.
+
+**Proactive refresh window.** `CachedCredentialProvider` refreshes credentials 60 seconds before their reported expiration to avoid handing the SigV4 signer credentials that may expire mid-request. The constant (`CachedCredentialProvider::REFRESH_WINDOW = 60`) matches the AWS SDK's own `CredentialProvider::memoize()` default. This window is not configurable in v3; the load impact is bounded (one extra fetch per credentials cycle, where the cycle is hours long for STS sessions).
 
 **Important:** Credential caching only applies to AWS clients created through the SDK singleton (e.g. `app('aws')->createS3()`). Clients instantiated directly (`new S3Client([...])`) bypass the singleton and do not benefit from cached credentials. Always resolve clients via the container:
 
@@ -215,9 +201,46 @@ $s3 = app('aws')->createS3();
 $s3 = new \Aws\S3\S3Client([...]);
 ```
 
-**Cache security note:** Cached credentials are stored in plaintext in the configured backend. Ensure your cache backend is appropriately secured. APCu stores credentials in shared memory within the PHP process, which is not accessible externally.
+**Cache security note:** Cached AWS credentials are stored in plaintext in the configured backend. Ensure your cache backend is appropriately secured. APCu stores credentials in shared memory within the PHP process, which is not accessible externally.
 
-**Static credentials are not cached.** Credentials without a reported expiration (e.g. static env keys, `~/.aws/credentials` profiles without an `expiration`) cannot be safely cached because the package has no signal for when to evict them. Each request will re-invoke the SDK credential chain. This is intentional: stale long-lived credentials would otherwise outlive their server-side validity and trigger the very failure mode the cache fingerprint guards against. Production workloads on IRSA / Pod Identity / instance profiles get full caching benefits because the SDK reports an expiration.
+**Laravel 13 `serializable_classes`:** Laravel 13 added a `cache.serializable_classes` config option, defaulted to `false` in fresh installs, which restricts the classes the cache may unserialize (defense against deserialization gadget chains). The `cache_store` fallback path stores an `Aws\Credentials\Credentials` object, so on Laravel 13 apps that keep the `false` default the credential entry is read back as `__PHP_Incomplete_Class` and treated as a cache miss. The effect is silent degradation of the fallback path (every request re-resolves credentials), not an error. If you rely on the `cache_store` fallback rather than APCu, allow-list the class:
+
+```php
+// config/cache.php
+'serializable_classes' => [
+    Aws\Credentials\Credentials::class,
+],
+```
+
+The APCu path is unaffected (APCu uses its own serialization, not the Laravel cache repository).
+
+**Static credentials are not cached.** Credentials without a reported expiration (e.g. static env keys, `~/.aws/credentials` profiles without an `expiration`) cannot be safely cached because the package has no signal for when to evict them. Each request will re-invoke the SDK credential chain. This is intentional: the expired-on-arrival guard in `AwsCredentialCacheStore::set()` prevents storing credentials the SDK has already marked expired, but long-lived credentials have no expiration to check. Production workloads on IRSA / Pod Identity / instance profiles get full caching benefits because the SDK reports an expiration.
+
+## Known upstream limitations
+
+This package consciously does not work around the following AWS-side gaps. Each limitation is documented so consumers understand the behavior and where to file issues upstream if material.
+
+### EKS Pod Identity Agent may serve credentials AWS has invalidated
+
+The agent's internal cache can lag behind server-side session revocation. No client-side mechanism can detect this. The connector retry helps only if the agent has rotated between attempts. If your observability shows sustained `iam-auth.rds-auth-rejected-retry-failed` events, file with `aws/containers-roadmap`; do not add client-side mitigation here.
+
+### AWS SDK retry middleware does not see RDS IAM auth errors
+
+RDS speaks the database wire protocol, so auth rejections arrive as `PDOException`, never as AWS SDK exceptions. The SDK's credential-refresh retry cannot apply. The connector-layer retry in `InjectsIamToken` is the correct place for the equivalent recovery logic.
+
+## Migrating from v2 to v3
+
+If you are on v1, follow the v1 → v2 migration notes in the [v2.x branch README](https://github.com/hackthebox/laravel-iam-auth/blob/main-v2/README.md) first, then return here.
+
+v3 is a breaking change from v2 with the following migration steps:
+
+1. Update `composer.json` to require `^3.0`.
+2. Remove `cache_ttl` and `credentials_expiry_buffer` from any `config/iam-auth.php` overrides. The RDS token cache is gone (tokens are signed per call); credential cache expiry is governed by the AWS SDK's standard `Aws\CacheInterface` contract.
+3. Remove the `IAM_AUTH_CACHE_TTL` and `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` env vars from deployment manifests.
+4. Existing APCu/Laravel cache entries from v2 will be discarded automatically (different cache key, different value shape). No migration step required.
+5. Custom handlers or middleware on the `aws` SDK singleton now actually survive (v3 no longer rebuilds the singleton).
+
+After deployment, expect occasional `iam-auth.rds-auth-rejected` warnings (followed by silent successful retries) during credential rotation windows. Sustained `iam-auth.rds-auth-rejected-retry-failed` events indicate the residual case and should be escalated upstream.
 
 ## License
 
