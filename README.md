@@ -237,8 +237,8 @@ v3 is a breaking change from v2 with the following migration steps:
 1. Update `composer.json` to require `^3.0`.
 2. Remove `cache_ttl` and `credentials_expiry_buffer` from any `config/iam-auth.php` overrides. The RDS token cache is gone (tokens are signed per call); credential cache expiry is governed by the AWS SDK's standard `Aws\CacheInterface` contract.
 3. Remove the `IAM_AUTH_CACHE_TTL` and `IAM_AUTH_CREDENTIALS_EXPIRY_BUFFER` env vars from deployment manifests.
-4. Existing APCu/Laravel cache entries from v1 will be discarded automatically (different cache key, different value shape). No migration step required.
-5. Custom handlers or middleware on the `aws` SDK singleton now actually survive (v2 stops rebuilding the singleton).
+4. Existing APCu/Laravel cache entries from v2 will be discarded automatically (different cache key, different value shape). No migration step required.
+5. Custom handlers or middleware on the `aws` SDK singleton now actually survive (v3 no longer rebuilds the singleton).
 
 After deployment, expect occasional `iam-auth.rds-auth-rejected` warnings (followed by silent successful retries) during credential rotation windows. Sustained `iam-auth.rds-auth-rejected-retry-failed` events indicate the residual case and should be escalated upstream.
 
