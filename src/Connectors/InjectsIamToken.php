@@ -18,12 +18,17 @@ trait InjectsIamToken
     private const PGSQL_FATAL_ERROR = 7;
 
     /**
-     * RDS grants IAM access through the `rds_iam` role, which pg_hba maps to PAM, so a
-     * genuine IAM rejection is the first of these. The second is deliberate breadth: a
-     * role that is not IAM-enabled falls back to scram and produces it instead, and it
-     * is also what a non-PAM front end such as RDS Proxy may surface. Re-signing fixes
-     * a rotation race, not a missing grant, so the second wording costs one wasted
-     * retry on a misconfigured role, bounded and documented in the README.
+     * RDS maps the `rds_iam` role to PAM in pg_hba, so a genuine IAM rejection is the
+     * first of these, and it is what was observed in production.
+     *
+     * The second is deliberate breadth. No current failure mode recovers from it: a
+     * role without the `rds_iam` grant falls back to scram, and AWS documents this
+     * wording for IAM auth attempted without SSL, which connect() already prevents by
+     * requiring verify-ca or verify-full. So it buys one wasted retry on a
+     * misconfiguration, at the cost noted in the README. It is kept ahead of planned
+     * RDS Proxy adoption, where the proxy authenticates instead of PAM and the
+     * rejection wording is unverified. Confirm that wording when the proxy lands: no
+     * proxy runs in CI, so the driver-shapes job cannot catch a change there.
      */
     private const PGSQL_AUTH_REJECTION_MESSAGES = [
         'pam authentication failed',
