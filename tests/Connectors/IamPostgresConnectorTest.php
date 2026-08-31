@@ -501,6 +501,10 @@ class IamPostgresConnectorTest extends TestCase
     /**
      * Real PostgreSQL 14+ wording. Shares the 08006/7 envelope with an auth rejection,
      * so only the message keeps it off the credential-refresh path.
+     *
+     * Seeded twice because Laravel's own lost-connection retry may legitimately fire
+     * for a refused connection, and which releases recognise this wording has changed
+     * over time. Either way the token must be signed once: no forced refresh.
      */
     public function test_connection_refused_does_not_trigger_retry(): void
     {
@@ -509,9 +513,11 @@ class IamPostgresConnectorTest extends TestCase
         $tokenProvider = $this->createMock(RdsTokenProvider::class);
         $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
 
-        $connector = $this->makeConnector($tokenProvider, attempts: [
-            $this->pgConnectFailure("Connection refused\n\tIs the server running on that host and accepting TCP/IP connections?"),
-        ]);
+        $refused = fn () => $this->pgConnectFailure(
+            "Connection refused\n\tIs the server running on that host and accepting TCP/IP connections?"
+        );
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$refused(), $refused()]);
 
         try {
             $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
