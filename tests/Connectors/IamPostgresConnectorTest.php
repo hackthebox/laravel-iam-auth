@@ -296,7 +296,16 @@ class IamPostgresConnectorTest extends TestCase
         $connector->connect($config);
     }
 
-    public function test_postgres_28p01_auth_rejection_logs_structured_warning(): void
+    /**
+     * Covers the forward-compatible class 28 guard, not observed driver behaviour.
+     *
+     * No supported engine emits SQLSTATE class 28 while establishing a connection, so
+     * this fixture is synthetic by construction; DriverErrorShapeTest is what asserts
+     * against the shapes drivers really produce. The guard earns its place only if a
+     * future PDO stops flattening the server SQLSTATE to 08006, which would otherwise
+     * bypass the message matching in isPgsqlAuthRejection().
+     */
+    public function test_class_28_sqlstate_28p01_is_treated_as_an_auth_rejection(): void
     {
         $connector = $this->mockConnectorThatThrows($this->makePdoException(
             '28P01',
@@ -312,7 +321,7 @@ class IamPostgresConnectorTest extends TestCase
             ->withArgs(fn (string $msg) => $msg === 'iam-auth.rds-auth-rejected');
     }
 
-    public function test_postgres_28000_auth_rejection_logs_structured_warning(): void
+    public function test_class_28_sqlstate_28000_is_treated_as_an_auth_rejection(): void
     {
         $connector = $this->mockConnectorThatThrows($this->makePdoException(
             '28000',
