@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- PostgreSQL IAM auth rejections that surface as SQLSTATE `08006`, driver code `7`, with `PAM authentication failed` in the driver message are now classified as auth rejections. This preserves the existing one-shot fresh-credential retry flow without broadening generic `08006` network failures into auth failures.
+
 ## [3.0.0] - 2026-05-18
 
 ### Breaking changes

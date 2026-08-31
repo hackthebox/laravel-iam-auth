@@ -396,6 +396,58 @@ class IamPostgresConnectorTest extends TestCase
             ->with('iam-auth.rds-auth-rejected-retry-failed', Mockery::any())->once();
     }
 
+    public function test_retry_succeeds_after_auth_rejection_08006_pam(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->exactly(2))
+            ->method('getToken')
+            ->willReturnCallback(function ($h, $p, $u, $r, $force = false) {
+                static $i = 0;
+                $i++;
+                $this->assertSame($i === 2, $force);
+                return $i === 1 ? 'token1' : 'token2';
+            });
+
+        $connector = $this->makeConnector(
+            $tokenProvider,
+            attempts: [$this->pgPamAuthRejection(), $this->createMock(PDO::class)],
+        );
+
+        $pdo = $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+        $this->assertNotNull($pdo);
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+        Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
+    }
+
+    public function test_retry_failure_after_pam_auth_rejection_logs_retry_failed_and_propagates_second_exception(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->method('getToken')->willReturn('token');
+
+        $first = $this->pgPamAuthRejection();
+        $second = $this->pgPamAuthRejection('retry second failure');
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$first, $second]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException $e) {
+            $this->assertStringContainsString('retry second failure', $e->getMessage());
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected-retry-failed', Mockery::any())->once();
+    }
+
     public function test_non_auth_pdo_exception_propagates_without_retry(): void
     {
         Log::spy();
@@ -475,6 +527,9 @@ class IamPostgresConnectorTest extends TestCase
 
         $authRejection = $this->pgAuthRejection('28P01');
         $this->assertFalse($ref->invoke($connector, $authRejection));
+
+        $pamRejection = $this->pgPamAuthRejection();
+        $this->assertFalse($ref->invoke($connector, $pamRejection));
     }
 
     public function test_caused_by_lost_connection_delegates_to_parent_for_non_auth(): void
@@ -500,6 +555,13 @@ class IamPostgresConnectorTest extends TestCase
     {
         $e = new PDOException("SQLSTATE[$sqlstate]: $msg");
         $e->errorInfo = [$sqlstate, 7, $msg];
+        return $e;
+    }
+
+    private function pgPamAuthRejection(string $msg = 'FATAL: PAM authentication failed for user "iam_user"'): PDOException
+    {
+        $e = new PDOException("SQLSTATE[08006] [7] $msg");
+        $e->errorInfo = ['08006', 7, $msg];
         return $e;
     }
 

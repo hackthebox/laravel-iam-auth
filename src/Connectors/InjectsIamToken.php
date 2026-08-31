@@ -73,8 +73,15 @@ trait InjectsIamToken
     {
         $sqlstate = (string) ($e->errorInfo[0] ?? '');
         $driverCode = $e->errorInfo[1] ?? null;
+        $driverMessage = strtolower((string) ($e->errorInfo[2] ?? $e->getMessage()));
 
-        return str_starts_with($sqlstate, '28') || $driverCode === 1045;
+        return str_starts_with($sqlstate, '28')
+            || $driverCode === 1045
+            || (
+                $sqlstate === '08006'
+                && (int) $driverCode === 7
+                && str_contains($driverMessage, 'pam authentication failed')
+            );
     }
 
     private function logAuthRejection(array $config): void

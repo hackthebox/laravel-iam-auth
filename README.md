@@ -156,7 +156,7 @@ IAM auth tokens are valid for 15 minutes and are generated fresh on each databas
 
 **Cache-backend resilience.** All three cache operations (`get`, `set`, `remove`) treat Laravel cache backend failures as best-effort: transient errors (e.g. Redis temporarily unavailable) are swallowed and logged under `iam-auth.cache-store-write-failed`, so a single backend blip cannot fail user requests even when credentials were resolved successfully. Misconfiguration (an unsafe `cache_store` like `database` or `dynamodb`) still throws loudly via `assertSafeCacheStore` before any operation.
 
-**Auth rejection triggers a single retry with fresh credentials.** Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, native code `1045` for MySQL/MariaDB) triggers the following recovery sequence:
+**Auth rejection triggers a single retry with fresh credentials.** Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, the PostgreSQL RDS/PAM shape `08006` + driver code `7` + message containing `PAM authentication failed`, native code `1045` for MySQL/MariaDB) triggers the following recovery sequence:
 
 1. Log `iam-auth.rds-auth-rejected` (warning) with the current credential cache snapshot.
 2. Invalidate `CachedCredentialProvider`'s in-process memo and the cross-request store.
