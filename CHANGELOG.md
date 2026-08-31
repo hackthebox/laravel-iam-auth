@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-09-01
+
 ### Fixed
 
 - PostgreSQL auth rejections are now detected, so the one-shot fresh-credential retry actually runs on PostgreSQL. `pdo_pgsql` reports every connect-time failure as SQLSTATE `08006` with driver code `7` and discards the SQLSTATE the server sent, so the previous SQLSTATE class `28` check could never match and every IAM rejection was mistaken for a network failure. Rejections are now recognised by the driver message (`PAM authentication failed`, as RDS IAM emits, and `password authentication failed`). Other `08006` failures such as connection refused or an unknown database remain network failures and still do not invalidate credentials.
@@ -14,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `driver-shapes` CI job asserting auth-rejection classification against real servers on every supported engine version: PostgreSQL 14-18, MySQL 8.4 and 9.7, MariaDB 10.11, 11.4, 11.8 and 12.3. PostgreSQL is additionally exercised through PAM, the mechanism RDS IAM uses, so the rejection shape is reproduced without an AWS account.
+
+### Upgrade notes
+
+No configuration, API or behavioural changes for MySQL/MariaDB; upgrading is a version bump. PostgreSQL consumers should expect **new log volume**: `iam-auth.rds-auth-rejected` warnings that were previously never emitted will now appear during credential rotation windows, each followed by a silent successful retry. That is the fix working, not a new fault. Alert on sustained `iam-auth.rds-auth-rejected-retry-failed` instead, which indicates a rejection that a fresh credential did not resolve.
 
 ## [3.0.0] - 2026-07-08
 
@@ -138,8 +144,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for PHP 8.2, 8.3, and 8.4
 - Support for Laravel 11 and 12
 
-[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v3.0.0...HEAD
-[3.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.1...v3.0.0
+[Unreleased]: https://github.com/hackthebox/laravel-iam-auth/compare/v3.0.1...HEAD
+[3.0.1]: https://github.com/hackthebox/laravel-iam-auth/compare/v3.0.0...v3.0.1
+[3.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.2...v3.0.0
+[2.0.2]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.1...v2.0.2
 [2.0.1]: https://github.com/hackthebox/laravel-iam-auth/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.1.0...v2.0.0
 [1.1.0]: https://github.com/hackthebox/laravel-iam-auth/compare/v1.0.2...v1.1.0
