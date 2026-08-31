@@ -567,6 +567,53 @@ class IamPostgresConnectorTest extends TestCase
         Log::shouldNotHaveReceived('warning');
     }
 
+    /**
+     * The wording is only trusted inside the envelope pdo_pgsql produces at connect
+     * time. A different SQLSTATE carrying the same words is some other failure.
+     */
+    public function test_auth_wording_under_a_different_sqlstate_does_not_trigger_retry(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+        $err = new PDOException('SQLSTATE[08P01] [7] password authentication failed for user "iam_user"');
+        $err->errorInfo = ['08P01', 7, 'FATAL:  password authentication failed for user "iam_user"'];
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$err]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException) {
+        }
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    /**
+     * errorInfo[2] is the server's own text; getMessage() is PDO's rendering of it and
+     * is only a fallback. Anything wrapping the exception must not change the verdict.
+     */
+    public function test_driver_message_is_preferred_over_the_exception_message(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->exactly(2))->method('getToken')->willReturn('token');
+
+        $err = new PDOException('an opaque wrapper message');
+        $err->errorInfo = ['08006', 7, 'FATAL:  PAM authentication failed for user "iam_user"'];
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$err, $this->createMock(PDO::class)]);
+
+        $this->assertNotNull($connector->createConnection('pgsql:host=h', $this->iamConfig(), []));
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+    }
+
     public function test_non_auth_42501_does_not_trigger_retry(): void
     {
         Log::spy();
