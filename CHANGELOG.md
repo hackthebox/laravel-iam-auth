@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `driver-shapes` CI job asserting auth-rejection classification against real servers on every supported engine version: PostgreSQL 14-18, MySQL 8.4 and 9.7, MariaDB 10.11, 11.4, 11.8 and 12.3. PostgreSQL is additionally exercised through PAM, the mechanism RDS IAM uses, so the rejection shape is reproduced without an AWS account.
 
-## [3.0.0] - 2026-05-18
+## [3.0.0] - 2026-07-08
 
 ### Breaking changes
 
