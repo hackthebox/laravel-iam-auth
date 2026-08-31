@@ -6,6 +6,10 @@
 # For PostgreSQL it also maps one dedicated role to PAM authentication, which is how
 # RDS implements IAM auth. Auth then fails with the same "PAM authentication failed"
 # wording RDS produces, so the classifier can be tested without an AWS account.
+#
+# Settings are written to $GITHUB_ENV so later steps inherit them. Run locally with
+# `set -a; . <(PHP=/path/to/php ./start-db.sh postgres:17); set +a` to apply them to
+# your own shell; $PHP overrides the interpreter used for the readiness probe.
 
 set -euo pipefail
 
@@ -13,6 +17,8 @@ IMAGE="${1:?usage: start-db.sh <docker image>}"
 NAME=iam-auth-driver-shapes
 PASSWORD='c0rrect-h0rse'
 PAM_USERNAME=pam_probe
+
+docker rm -f "$NAME" >/dev/null 2>&1 || true
 
 case "$IMAGE" in
     postgres:*)
@@ -59,9 +65,10 @@ if [ "$DRIVER" = pgsql ]; then
     # pg_reload_conf() reports success even when the postmaster rejected the file, and
     # an image built without --with-pam rejects it. Confirm the rule is actually live,
     # otherwise the PAM test would silently assert against a scram rejection instead.
-    if ! docker exec "$NAME" psql -U "$USERNAME" -tAc \
-        "select count(*) from pg_hba_file_rules where auth_method = 'pam' and error is null" \
-        | grep -qE '^[1-9]'; then
+    PAM_RULES=$(docker exec "$NAME" psql -U "$USERNAME" -tAc \
+        "select count(*) from pg_hba_file_rules where auth_method = 'pam' and error is null" | tr -d '[:space:]')
+
+    if [ "${PAM_RULES:-0}" -lt 1 ]; then
         echo "start-db: $IMAGE did not accept the pam pg_hba rule; is it built --with-pam?" >&2
         docker logs "$NAME" 2>&1 | tail -20 >&2
         exit 1

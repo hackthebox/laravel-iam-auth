@@ -73,6 +73,32 @@ class DriverErrorShapeTest extends TestCase
         );
     }
 
+    /**
+     * Pins the envelope itself, not just the verdict.
+     *
+     * The README and the classifier's docblock both assert what each driver reports
+     * for a rejected connection. Without this, that table is prose CI cannot falsify:
+     * on MySQL in particular, ['28000', 1045, ...] would classify identically to the
+     * ['HY000', 1045, ...] the driver actually emits, so a regression in the driver
+     * would go unnoticed.
+     */
+    public function test_driver_reports_the_documented_error_shape(): void
+    {
+        $e = $this->connectExpectingFailure($this->dsn($this->database), $this->username, 'definitely-not-the-password');
+
+        [$sqlstate, $driverCode] = [$e->errorInfo[0] ?? null, $e->errorInfo[1] ?? null];
+
+        if ($this->driver === 'pgsql') {
+            $this->assertSame('08006', $sqlstate, 'pdo_pgsql hardcodes the connect-failure SQLSTATE.');
+            $this->assertSame(7, $driverCode, 'PGRES_FATAL_ERROR');
+        } else {
+            $this->assertSame('HY000', $sqlstate, 'pdo_mysql reports HY000, not the 28000 the server maps 1045 to.');
+            $this->assertSame(1045, $driverCode, 'ER_ACCESS_DENIED_ERROR');
+        }
+
+        $this->assertIsString($e->errorInfo[2] ?? null, 'The driver message the classifier reads must be present.');
+    }
+
     public function test_real_auth_rejection_is_not_treated_as_a_lost_connection(): void
     {
         $e = $this->connectExpectingFailure($this->dsn($this->database), $this->username, 'definitely-not-the-password');

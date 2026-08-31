@@ -17,6 +17,14 @@ trait InjectsIamToken
 
     private const PGSQL_FATAL_ERROR = 7;
 
+    /**
+     * RDS grants IAM access through the `rds_iam` role, which pg_hba maps to PAM, so a
+     * genuine IAM rejection is the first of these. The second is deliberate breadth: a
+     * role that is not IAM-enabled falls back to scram and produces it instead, and it
+     * is also what a non-PAM front end such as RDS Proxy may surface. Re-signing fixes
+     * a rotation race, not a missing grant, so the second wording costs one wasted
+     * retry on a misconfigured role, bounded and documented in the README.
+     */
     private const PGSQL_AUTH_REJECTION_MESSAGES = [
         'pam authentication failed',
         'password authentication failed',

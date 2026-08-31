@@ -501,8 +501,11 @@ class IamPostgresConnectorTest extends TestCase
 
         $connector = $this->makeConnector($tokenProvider, attempts: [$networkErr]);
 
-        $this->expectException(PDOException::class);
-        $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException) {
+        }
 
         Log::shouldNotHaveReceived('warning');
     }
@@ -707,6 +710,16 @@ class IamPostgresConnectorTest extends TestCase
         Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
     }
 
+    /**
+     * True by construction on PostgreSQL, and deliberately kept anyway.
+     *
+     * Neither fixture matches any needle in Laravel's LostConnectionDetector, so the
+     * parent returns false unaided and this passes with or without the override. The
+     * override is load-bearing only on MySQL/MariaDB, where the detector does list
+     * 'SQLSTATE[HY000] [1045] Access denied for user'; the positive control that makes
+     * that assertion mean something lives in IamMariaDbConnectorTest. This one records
+     * the PostgreSQL half of the contract. Do not read it as coverage of the override.
+     */
     public function test_caused_by_lost_connection_returns_false_for_auth_rejection(): void
     {
         $connector = $this->makeConnector(
