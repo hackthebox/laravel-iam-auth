@@ -296,7 +296,16 @@ class IamPostgresConnectorTest extends TestCase
         $connector->connect($config);
     }
 
-    public function test_postgres_28p01_auth_rejection_logs_structured_warning(): void
+    /**
+     * Covers the forward-compatible class 28 guard, not observed driver behaviour.
+     *
+     * No supported engine emits SQLSTATE class 28 while establishing a connection, so
+     * this fixture is synthetic by construction; DriverErrorShapeTest is what asserts
+     * against the shapes drivers really produce. The guard earns its place only if a
+     * future PDO stops flattening the server SQLSTATE to 08006, which would otherwise
+     * bypass the message matching in isPgsqlAuthRejection().
+     */
+    public function test_class_28_sqlstate_28p01_is_treated_as_an_auth_rejection(): void
     {
         $connector = $this->mockConnectorThatThrows($this->makePdoException(
             '28P01',
@@ -312,7 +321,7 @@ class IamPostgresConnectorTest extends TestCase
             ->withArgs(fn (string $msg) => $msg === 'iam-auth.rds-auth-rejected');
     }
 
-    public function test_postgres_28000_auth_rejection_logs_structured_warning(): void
+    public function test_class_28_sqlstate_28000_is_treated_as_an_auth_rejection(): void
     {
         $connector = $this->mockConnectorThatThrows($this->makePdoException(
             '28000',
@@ -396,6 +405,90 @@ class IamPostgresConnectorTest extends TestCase
             ->with('iam-auth.rds-auth-rejected-retry-failed', Mockery::any())->once();
     }
 
+    public function test_retry_succeeds_after_auth_rejection_08006_pam(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->exactly(2))
+            ->method('getToken')
+            ->willReturnCallback(function ($h, $p, $u, $r, $force = false) {
+                static $i = 0;
+                $i++;
+                $this->assertSame($i === 2, $force);
+                return $i === 1 ? 'token1' : 'token2';
+            });
+
+        $connector = $this->makeConnector(
+            $tokenProvider,
+            attempts: [
+                $this->pgConnectFailure('FATAL:  PAM authentication failed for user "iam_user"'),
+                $this->createMock(PDO::class),
+            ],
+        );
+
+        $pdo = $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+        $this->assertNotNull($pdo);
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+        Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
+    }
+
+    public function test_retry_failure_after_pam_auth_rejection_logs_retry_failed_and_propagates_second_exception(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->method('getToken')->willReturn('token');
+
+        $first = $this->pgConnectFailure('FATAL:  PAM authentication failed for user "iam_user"');
+        $second = $this->pgConnectFailure('FATAL:  PAM authentication failed for user "iam_user" (retry second failure)');
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$first, $second]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException $e) {
+            $this->assertStringContainsString('retry second failure', $e->getMessage());
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected-retry-failed', Mockery::any())->once();
+    }
+
+    public function test_retry_succeeds_after_password_authentication_failed(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->exactly(2))
+            ->method('getToken')
+            ->willReturnCallback(function ($h, $p, $u, $r, $force = false) {
+                static $i = 0;
+                $i++;
+                $this->assertSame($i === 2, $force);
+                return $i === 1 ? 'token1' : 'token2';
+            });
+
+        $connector = $this->makeConnector(
+            $tokenProvider,
+            attempts: [
+                $this->pgConnectFailure('FATAL:  password authentication failed for user "iam_user"'),
+                $this->createMock(PDO::class),
+            ],
+        );
+
+        $pdo = $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+        $this->assertNotNull($pdo);
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
+    }
+
     public function test_non_auth_pdo_exception_propagates_without_retry(): void
     {
         Log::spy();
@@ -408,10 +501,164 @@ class IamPostgresConnectorTest extends TestCase
 
         $connector = $this->makeConnector($tokenProvider, attempts: [$networkErr]);
 
-        $this->expectException(PDOException::class);
-        $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException) {
+        }
 
         Log::shouldNotHaveReceived('warning');
+    }
+
+    /**
+     * Real PostgreSQL 14+ wording. Shares the 08006/7 envelope with an auth rejection,
+     * so only the message keeps it off the credential-refresh path.
+     *
+     * Seeded twice because Laravel's own lost-connection retry may legitimately fire
+     * for a refused connection, and which releases recognise this wording has changed
+     * over time. Either way the token must be signed once: no forced refresh.
+     */
+    public function test_connection_refused_does_not_trigger_retry(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+        $refused = fn () => $this->pgConnectFailure(
+            "Connection refused\n\tIs the server running on that host and accepting TCP/IP connections?"
+        );
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$refused(), $refused()]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException) {
+        }
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    /**
+     * Only the two mechanisms a fresh IAM token can satisfy count. The other pg_hba
+     * methods produce the same "<method> authentication failed for user" wording, and
+     * re-signing a token fixes none of them, so widening the match to a bare
+     * "authentication failed" would spend a credential invalidation and an STS round
+     * trip on every one of them.
+     */
+    public function test_non_iam_authentication_methods_do_not_trigger_retry(): void
+    {
+        Log::spy();
+
+        foreach (['Ident', 'Peer', 'GSSAPI', 'LDAP', 'RADIUS'] as $method) {
+            $tokenProvider = $this->createMock(RdsTokenProvider::class);
+            $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+            $connector = $this->makeConnector($tokenProvider, attempts: [
+                $this->pgConnectFailure("FATAL:  $method authentication failed for user \"iam_user\""),
+            ]);
+
+            try {
+                $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+                $this->fail("expected PDOException for $method");
+            } catch (PDOException) {
+            }
+        }
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    public function test_missing_database_does_not_trigger_retry(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [
+            $this->pgConnectFailure('FATAL:  database "hackthebox" does not exist'),
+        ]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException) {
+        }
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    /**
+     * The auth wording only counts inside the 08006/7 envelope pdo_pgsql produces at
+     * connect time, so a different driver code stays on the normal failure path.
+     */
+    public function test_auth_wording_under_a_different_driver_code_does_not_trigger_retry(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+        $err = new PDOException('SQLSTATE[08006] [99] password authentication failed for user "iam_user"');
+        $err->errorInfo = ['08006', 99, 'password authentication failed for user "iam_user"'];
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$err]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException) {
+        }
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    /**
+     * The wording is only trusted inside the envelope pdo_pgsql produces at connect
+     * time. A different SQLSTATE carrying the same words is some other failure.
+     */
+    public function test_auth_wording_under_a_different_sqlstate_does_not_trigger_retry(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+        $err = new PDOException('SQLSTATE[08P01] [7] password authentication failed for user "iam_user"');
+        $err->errorInfo = ['08P01', 7, 'FATAL:  password authentication failed for user "iam_user"'];
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$err]);
+
+        try {
+            $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+            $this->fail('expected PDOException');
+        } catch (PDOException) {
+        }
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
+    /**
+     * errorInfo[2] is the server's own text; getMessage() is PDO's rendering of it and
+     * is only a fallback. Anything wrapping the exception must not change the verdict.
+     */
+    public function test_driver_message_is_preferred_over_the_exception_message(): void
+    {
+        Log::spy();
+
+        $tokenProvider = $this->createMock(RdsTokenProvider::class);
+        $tokenProvider->expects($this->exactly(2))->method('getToken')->willReturn('token');
+
+        $err = new PDOException('an opaque wrapper message');
+        $err->errorInfo = ['08006', 7, 'FATAL:  PAM authentication failed for user "iam_user"'];
+
+        $connector = $this->makeConnector($tokenProvider, attempts: [$err, $this->createMock(PDO::class)]);
+
+        $this->assertNotNull($connector->createConnection('pgsql:host=h', $this->iamConfig(), []));
+
+        Log::shouldHaveReceived('warning')
+            ->with('iam-auth.rds-auth-rejected', Mockery::any())->once();
     }
 
     public function test_non_auth_42501_does_not_trigger_retry(): void
@@ -463,6 +710,16 @@ class IamPostgresConnectorTest extends TestCase
         Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
     }
 
+    /**
+     * True by construction on PostgreSQL, and deliberately kept anyway.
+     *
+     * Neither fixture matches any needle in Laravel's LostConnectionDetector, so the
+     * parent returns false unaided and this passes with or without the override. The
+     * override is load-bearing only on MySQL/MariaDB, where the detector does list
+     * 'SQLSTATE[HY000] [1045] Access denied for user'; the positive control that makes
+     * that assertion mean something lives in IamMariaDbConnectorTest. This one records
+     * the PostgreSQL half of the contract. Do not read it as coverage of the override.
+     */
     public function test_caused_by_lost_connection_returns_false_for_auth_rejection(): void
     {
         $connector = $this->makeConnector(
@@ -475,6 +732,9 @@ class IamPostgresConnectorTest extends TestCase
 
         $authRejection = $this->pgAuthRejection('28P01');
         $this->assertFalse($ref->invoke($connector, $authRejection));
+
+        $pamRejection = $this->pgConnectFailure('FATAL:  PAM authentication failed for user "iam_user"');
+        $this->assertFalse($ref->invoke($connector, $pamRejection));
     }
 
     public function test_caused_by_lost_connection_delegates_to_parent_for_non_auth(): void
@@ -500,6 +760,23 @@ class IamPostgresConnectorTest extends TestCase
     {
         $e = new PDOException("SQLSTATE[$sqlstate]: $msg");
         $e->errorInfo = [$sqlstate, 7, $msg];
+        return $e;
+    }
+
+    /**
+     * The exception shape pdo_pgsql actually produces at connect time.
+     *
+     * A failed PQconnectdb yields no PGresult, so libpq cannot supply a SQLSTATE and
+     * the driver substitutes 08006 with PGRES_FATAL_ERROR (7) for every connect-time
+     * failure, discarding the server's real SQLSTATE. Verified on PostgreSQL 14-18.
+     */
+    private function pgConnectFailure(string $serverMessage): PDOException
+    {
+        $driverMessage = 'connection to server at "db.example" (10.0.107.200), port 5432 failed: '.$serverMessage;
+
+        $e = new PDOException("SQLSTATE[08006] [7] $driverMessage");
+        $e->errorInfo = ['08006', 7, $driverMessage];
+
         return $e;
     }
 

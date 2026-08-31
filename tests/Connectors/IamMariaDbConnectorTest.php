@@ -13,6 +13,7 @@ use Hackthebox\IamAuth\Connectors\IamMariaDbConnector;
 use Hackthebox\IamAuth\IamAuthServiceProvider;
 use Hackthebox\IamAuth\RdsTokenProvider;
 use Illuminate\Database\Connectors\MariaDbConnector;
+use Illuminate\Database\LostConnectionDetector;
 use Illuminate\Support\Facades\Log;
 use Mockery;
 use Orchestra\Testbench\TestCase;
@@ -211,7 +212,7 @@ class IamMariaDbConnectorTest extends TestCase
             $connector->createConnection('mysql:host=h;dbname=d', $this->iamConfig(), []);
             $this->fail('expected PDOException');
         } catch (PDOException $e) {
-            $this->assertSame('second', $e->getMessage());
+            $this->assertStringContainsString('second', $e->getMessage());
         }
 
         Log::shouldHaveReceived('warning')
@@ -266,6 +267,14 @@ class IamMariaDbConnectorTest extends TestCase
         Log::shouldNotHaveReceived('warning', ['iam-auth.rds-auth-rejected-retry-failed', Mockery::any()]);
     }
 
+    /**
+     * The override is load-bearing here, unlike on PostgreSQL. Laravel's detector
+     * lists 'SQLSTATE[HY000] [1045] Access denied for user', so without the override
+     * tryAgainIfCausedByLostConnection would reconnect using the same rejected token
+     * before the trait ever sees the exception, and the fresh-credential retry would
+     * never run. The positive control below fails if that needle is ever dropped,
+     * which would make the assertion beneath it vacuous.
+     */
     public function test_caused_by_lost_connection_returns_false_for_auth_rejection(): void
     {
         $connector = $this->makeConnector(
@@ -277,6 +286,11 @@ class IamMariaDbConnectorTest extends TestCase
         $ref->setAccessible(true);
 
         $authRejection = $this->mariaAuthRejection();
+
+        $this->assertTrue(
+            (new LostConnectionDetector())->causedByLostConnection($authRejection),
+            'Laravel treats this rejection as a lost connection, so the override has work to do.',
+        );
         $this->assertFalse($ref->invoke($connector, $authRejection));
     }
 
@@ -299,10 +313,16 @@ class IamMariaDbConnectorTest extends TestCase
         $this->assertFalse($ref->invoke($connector, $unrelated));
     }
 
-    private function mariaAuthRejection(string $msg = 'access denied'): PDOException
-    {
-        $e = new PDOException($msg);
+    /**
+     * Byte-exact shape measured on MySQL 8.4/9.7 and MariaDB 10.11-12.3: the driver
+     * reports HY000 rather than the 28000 the server's own catalogue maps 1045 to.
+     */
+    private function mariaAuthRejection(
+        string $msg = "Access denied for user 'iam_user'@'10.0.4.26' (using password: YES)"
+    ): PDOException {
+        $e = new PDOException("SQLSTATE[HY000] [1045] $msg");
         $e->errorInfo = ['HY000', 1045, $msg];
+
         return $e;
     }
 
