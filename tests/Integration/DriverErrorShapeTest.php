@@ -102,8 +102,6 @@ class DriverErrorShapeTest extends TestCase
 
     public function test_missing_database_is_not_classified_as_auth_rejection(): void
     {
-        $this->requirePostgres();
-
         $e = $this->connectExpectingFailure($this->dsn('database_that_does_not_exist'), $this->username, $this->password);
 
         $this->assertFalse(

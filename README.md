@@ -158,7 +158,7 @@ IAM auth tokens are valid for 15 minutes and are generated fresh on each databas
 
 **Auth rejection triggers a single retry with fresh credentials.** An auth rejection from RDS that reaches the connector triggers the recovery sequence below. How the rejection is recognised depends on the driver:
 
-- **PostgreSQL** — `pdo_pgsql` reports every connect-time failure as SQLSTATE `08006` with driver code `7`, discarding the SQLSTATE the server actually sent (see [Known upstream limitations](#pdo_pgsql-discards-the-servers-sqlstate-when-a-connection-fails)). The driver message is therefore the only usable signal, and it is matched for `PAM authentication failed` (how RDS IAM auth rejects) and `password authentication failed`. Every other `08006` failure — connection refused, unknown database, TLS failure — stays on the normal lost-connection path and never invalidates credentials.
+- **PostgreSQL** — `pdo_pgsql` reports every connect-time failure as SQLSTATE `08006` with driver code `7`, discarding the SQLSTATE the server actually sent (see [Known upstream limitations](#pdo_pgsql-discards-the-servers-sqlstate-when-a-connection-fails)). The driver message is therefore the only usable signal, and it is matched for `PAM authentication failed` (how RDS IAM auth rejects) and `password authentication failed`. Every other `08006` failure — connection refused, unknown database, TLS failure — is not treated as an auth rejection and never invalidates credentials. Whether Laravel itself retries such a failure is decided by its own lost-connection detector and is unchanged by this package; as of Laravel 12 it does not retry any of those three, because the detector still matches pre-14 libpq wording.
 - **MySQL / MariaDB** — native error code `1045`.
 - SQLSTATE class `28` is also accepted. No supported driver currently produces it during connection establishment; it is a forward-compatible guard, not the mechanism protecting PostgreSQL.
 
@@ -170,6 +170,8 @@ Recovery sequence:
 2. Invalidate `CachedCredentialProvider`'s in-process memo and the cross-request store.
 3. Re-sign the RDS token against freshly resolved credentials, which also repopulates the store so sibling workers benefit from the rotation.
 4. Retry the connection once.
+
+**A persistent misconfiguration pays this cost on every attempt.** PostgreSQL answers a nonexistent role with `password authentication failed` — deliberately, so it does not leak which roles exist — so a typo in `username`, or a role never granted `rds_iam`, is indistinguishable from a genuine IAM rejection. Each attempt then evicts the cross-request credential entry, forcing sibling workers back to the credential provider, and doubles the connect attempts. With an array `host` config, Laravel tries each host in turn and the cost multiplies by the number of hosts. Sustained `iam-auth.rds-auth-rejected-retry-failed` warnings are the signal that something is misconfigured rather than rotating.
 
 If the retry also fails with an auth rejection, `iam-auth.rds-auth-rejected-retry-failed` is logged and the exception is re-thrown. This covers the common case of a credential rotation window landing between the credential cache write and the DB connect.
 

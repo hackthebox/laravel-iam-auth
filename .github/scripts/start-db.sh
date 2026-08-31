@@ -55,6 +55,17 @@ if [ "$DRIVER" = pgsql ]; then
     HBA=$(docker exec "$NAME" psql -U "$USERNAME" -tAc 'show hba_file' | tr -d '\r')
     docker exec "$NAME" sh -c "printf 'host all $PAM_USERNAME 0.0.0.0/0 pam\n' | cat - '$HBA' > /tmp/hba && cp /tmp/hba '$HBA'"
     docker exec "$NAME" psql -U "$USERNAME" -q -c 'select pg_reload_conf()' >/dev/null
+
+    # pg_reload_conf() reports success even when the postmaster rejected the file, and
+    # an image built without --with-pam rejects it. Confirm the rule is actually live,
+    # otherwise the PAM test would silently assert against a scram rejection instead.
+    if ! docker exec "$NAME" psql -U "$USERNAME" -tAc \
+        "select count(*) from pg_hba_file_rules where auth_method = 'pam' and error is null" \
+        | grep -qE '^[1-9]'; then
+        echo "start-db: $IMAGE did not accept the pam pg_hba rule; is it built --with-pam?" >&2
+        docker logs "$NAME" 2>&1 | tail -20 >&2
+        exit 1
+    fi
 fi
 
 {

@@ -62,8 +62,16 @@ jobs:
           - 'mariadb:11.4'
           - 'mariadb:11.8'
           - 'mariadb:12.3'
+        laravel: ['13.*']
+        # causedByLostConnection() delegates to Laravel's own detector, whose message
+        # list changes between releases, so one engine per family also runs on 12.*.
+        include:
+          - image: 'postgres:17'
+            laravel: '12.*'
+          - image: 'mysql:8.4'
+            laravel: '12.*'
 
-    name: Driver shapes / ${{ matrix.image }}
+    name: Driver shapes / ${{ matrix.image }} / Laravel ${{ matrix.laravel }}
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -76,7 +84,11 @@ jobs:
           coverage: none
 
       - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist
+        env:
+          LARAVEL_VERSION: ${{ matrix.laravel }}
+        run: |
+          composer require "illuminate/database:${LARAVEL_VERSION}" "illuminate/support:${LARAVEL_VERSION}" --no-update
+          composer install --no-interaction --prefer-dist
 
       - name: Start ${{ matrix.image }}
         env:

@@ -537,6 +537,35 @@ class IamPostgresConnectorTest extends TestCase
         Log::shouldNotHaveReceived('warning');
     }
 
+    /**
+     * Only the two mechanisms a fresh IAM token can satisfy count. The other pg_hba
+     * methods produce the same "<method> authentication failed for user" wording, and
+     * re-signing a token fixes none of them, so widening the match to a bare
+     * "authentication failed" would spend a credential invalidation and an STS round
+     * trip on every one of them.
+     */
+    public function test_non_iam_authentication_methods_do_not_trigger_retry(): void
+    {
+        Log::spy();
+
+        foreach (['Ident', 'Peer', 'GSSAPI', 'LDAP', 'RADIUS'] as $method) {
+            $tokenProvider = $this->createMock(RdsTokenProvider::class);
+            $tokenProvider->expects($this->once())->method('getToken')->willReturn('token');
+
+            $connector = $this->makeConnector($tokenProvider, attempts: [
+                $this->pgConnectFailure("FATAL:  $method authentication failed for user \"iam_user\""),
+            ]);
+
+            try {
+                $connector->createConnection('pgsql:host=h', $this->iamConfig(), []);
+                $this->fail("expected PDOException for $method");
+            } catch (PDOException) {
+            }
+        }
+
+        Log::shouldNotHaveReceived('warning');
+    }
+
     public function test_missing_database_does_not_trigger_retry(): void
     {
         Log::spy();
