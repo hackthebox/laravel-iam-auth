@@ -42,4 +42,46 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress
 
       - name: Run tests
-        run: vendor/bin/phpunit
+        run: vendor/bin/phpunit --testsuite=Unit
+
+  driver-shapes:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - 'postgres:14'
+          - 'postgres:15'
+          - 'postgres:16'
+          - 'postgres:17'
+          - 'postgres:18'
+          - 'mysql:8.4'
+          - 'mysql:9.7'
+          - 'mariadb:10.11'
+          - 'mariadb:11.4'
+          - 'mariadb:11.8'
+          - 'mariadb:12.3'
+
+    name: Driver shapes / ${{ matrix.image }}
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: pdo, pdo_pgsql, pdo_mysql
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Start ${{ matrix.image }}
+        env:
+          DB_IMAGE: ${{ matrix.image }}
+        run: .github/scripts/start-db.sh "$DB_IMAGE"
+
+      - name: Assert auth-rejection classification against a real server
+        run: vendor/bin/phpunit --testsuite=Integration --testdox

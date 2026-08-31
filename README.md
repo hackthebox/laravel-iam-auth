@@ -156,7 +156,15 @@ IAM auth tokens are valid for 15 minutes and are generated fresh on each databas
 
 **Cache-backend resilience.** All three cache operations (`get`, `set`, `remove`) treat Laravel cache backend failures as best-effort: transient errors (e.g. Redis temporarily unavailable) are swallowed and logged under `iam-auth.cache-store-write-failed`, so a single backend blip cannot fail user requests even when credentials were resolved successfully. Misconfiguration (an unsafe `cache_store` like `database` or `dynamodb`) still throws loudly via `assertSafeCacheStore` before any operation.
 
-**Auth rejection triggers a single retry with fresh credentials.** Any auth rejection from RDS that reaches the connector (SQLSTATE class `28` for PostgreSQL, the PostgreSQL RDS/PAM shape `08006` + driver code `7` + message containing `PAM authentication failed`, native code `1045` for MySQL/MariaDB) triggers the following recovery sequence:
+**Auth rejection triggers a single retry with fresh credentials.** An auth rejection from RDS that reaches the connector triggers the recovery sequence below. How the rejection is recognised depends on the driver:
+
+- **PostgreSQL** — `pdo_pgsql` reports every connect-time failure as SQLSTATE `08006` with driver code `7`, discarding the SQLSTATE the server actually sent (see [Known upstream limitations](#pdo_pgsql-discards-the-servers-sqlstate-when-a-connection-fails)). The driver message is therefore the only usable signal, and it is matched for `PAM authentication failed` (how RDS IAM auth rejects) and `password authentication failed`. Every other `08006` failure — connection refused, unknown database, TLS failure — stays on the normal lost-connection path and never invalidates credentials.
+- **MySQL / MariaDB** — native error code `1045`.
+- SQLSTATE class `28` is also accepted. No supported driver currently produces it during connection establishment; it is a forward-compatible guard, not the mechanism protecting PostgreSQL.
+
+The classification is asserted against real servers on every supported engine version by the `driver-shapes` CI job, because fixtures built by hand cannot disagree with a driver.
+
+Recovery sequence:
 
 1. Log `iam-auth.rds-auth-rejected` (warning) with the current credential cache snapshot.
 2. Invalidate `CachedCredentialProvider`'s in-process memo and the cross-request store.
@@ -223,6 +231,12 @@ This package consciously does not work around the following AWS-side gaps. Each 
 ### EKS Pod Identity Agent may serve credentials AWS has invalidated
 
 The agent's internal cache can lag behind server-side session revocation. No client-side mechanism can detect this. The connector retry helps only if the agent has rotated between attempts. If your observability shows sustained `iam-auth.rds-auth-rejected-retry-failed` events, file with `aws/containers-roadmap`; do not add client-side mitigation here.
+
+### pdo_pgsql discards the server's SQLSTATE when a connection fails
+
+A failed `PQconnectdb` produces no `PGresult`, so libpq cannot supply a SQLSTATE and exposes the failure only as free text via `PQerrorMessage()`. `pdo_pgsql` therefore substitutes a hardcoded `08006` with `PGRES_FATAL_ERROR` (`7`) for every connect-time failure, and the `28P01` the server sent for a rejected password never reaches PHP. Confirmed identical on PostgreSQL 14 through 18, under both `new PDO()` and the `PDO::connect()` path Laravel uses on PHP 8.4+.
+
+The consequence is that PostgreSQL auth rejections can only be distinguished from network failures by matching the driver message, which is what `InjectsIamToken` does. Two caveats follow from that and are accepted rather than worked around: the match is against English wording, so a server with a non-default `lc_messages` would not be recognised (RDS does not change it), and a future PostgreSQL release that rewords the message would silently return the package to treating the rejection as a network error. The `driver-shapes` CI job exists to catch the second case when a new engine version is added to the matrix.
 
 ### AWS SDK retry middleware does not see RDS IAM auth errors
 

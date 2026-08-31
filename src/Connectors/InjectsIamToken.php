@@ -11,6 +11,17 @@ use Throwable;
 
 trait InjectsIamToken
 {
+    private const MYSQL_ACCESS_DENIED = 1045;
+
+    private const PGSQL_CONNECT_FAILURE = '08006';
+
+    private const PGSQL_FATAL_ERROR = 7;
+
+    private const PGSQL_AUTH_REJECTION_MESSAGES = [
+        'pam authentication failed',
+        'password authentication failed',
+    ];
+
     abstract protected function getTokenProvider(): RdsTokenProvider;
 
     public function createConnection($dsn, array $config, array $options): PDO
@@ -72,16 +83,41 @@ trait InjectsIamToken
     private function isAuthRejection(PDOException $e): bool
     {
         $sqlstate = (string) ($e->errorInfo[0] ?? '');
-        $driverCode = $e->errorInfo[1] ?? null;
+
+        // Class 28 never reaches this method from pdo_pgsql or pdo_mysql during
+        // connection establishment; it is kept as a forward-compatible guard, not as
+        // the mechanism that protects PostgreSQL. See isPgsqlAuthRejection().
+        return str_starts_with($sqlstate, '28')
+            || ($e->errorInfo[1] ?? null) === self::MYSQL_ACCESS_DENIED
+            || $this->isPgsqlAuthRejection($e);
+    }
+
+    /**
+     * A failed PQconnectdb yields no PGresult, so libpq cannot supply a SQLSTATE and
+     * pdo_pgsql substitutes 08006 with PGRES_FATAL_ERROR for every connect-time
+     * failure, discarding the server's real SQLSTATE (28P01 for a rejected password).
+     * The server message is therefore the only signal separating an auth rejection
+     * from a network failure. Verified against PostgreSQL 14, 15, 16, 17 and 18.
+     */
+    private function isPgsqlAuthRejection(PDOException $e): bool
+    {
+        if ((string) ($e->errorInfo[0] ?? '') !== self::PGSQL_CONNECT_FAILURE) {
+            return false;
+        }
+
+        if (($e->errorInfo[1] ?? null) !== self::PGSQL_FATAL_ERROR) {
+            return false;
+        }
+
         $driverMessage = strtolower((string) ($e->errorInfo[2] ?? $e->getMessage()));
 
-        return str_starts_with($sqlstate, '28')
-            || $driverCode === 1045
-            || (
-                $sqlstate === '08006'
-                && (int) $driverCode === 7
-                && str_contains($driverMessage, 'pam authentication failed')
-            );
+        foreach (self::PGSQL_AUTH_REJECTION_MESSAGES as $needle) {
+            if (str_contains($driverMessage, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function logAuthRejection(array $config): void

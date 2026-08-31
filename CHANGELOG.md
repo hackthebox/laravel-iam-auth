@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- PostgreSQL IAM auth rejections that surface as SQLSTATE `08006`, driver code `7`, with `PAM authentication failed` in the driver message are now classified as auth rejections. This preserves the existing one-shot fresh-credential retry flow without broadening generic `08006` network failures into auth failures.
+- PostgreSQL auth rejections are now detected, so the one-shot fresh-credential retry actually runs on PostgreSQL. `pdo_pgsql` reports every connect-time failure as SQLSTATE `08006` with driver code `7` and discards the SQLSTATE the server sent, so the previous SQLSTATE class `28` check could never match and every IAM rejection was mistaken for a network failure. Rejections are now recognised by the driver message (`PAM authentication failed`, as RDS IAM emits, and `password authentication failed`). Other `08006` failures such as connection refused or an unknown database remain network failures and still do not invalidate credentials.
+
+### Added
+
+- `driver-shapes` CI job asserting auth-rejection classification against real servers on every supported engine version: PostgreSQL 14-18, MySQL 8.4 and 9.7, MariaDB 10.11, 11.4, 11.8 and 12.3. PostgreSQL is additionally exercised through PAM, the mechanism RDS IAM uses, so the rejection shape is reproduced without an AWS account.
 
 ## [3.0.0] - 2026-05-18
 
